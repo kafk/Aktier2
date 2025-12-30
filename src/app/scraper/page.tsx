@@ -32,14 +32,14 @@ interface YahooNewsItem {
 }
 
 // Fetch historical stock price at a specific time
-async function fetchHistoricalPrice(symbol: string, timestamp: string): Promise<number | null> {
+async function fetchHistoricalPrice(symbol: string, timestamp: string): Promise<{ price: number | null; source: string }> {
   try {
     const response = await fetch(`/api/stock-price?symbol=${symbol}&timestamp=${encodeURIComponent(timestamp)}`);
     const data = await response.json();
-    return data.price || null;
+    return { price: data.price || null, source: data.source || "unknown" };
   } catch (error) {
     console.error(`Error fetching historical price for ${symbol}:`, error);
-    return null;
+    return { price: null, source: "error" };
   }
 }
 
@@ -51,18 +51,29 @@ async function fetchAllPrices(
   priceAtEvent: number | null;
   price1h: number | null;
   price1d: number | null;
+  source: string;
 }> {
   const eventTime = new Date(publishedAt);
   const time1h = new Date(eventTime.getTime() + 60 * 60 * 1000); // +1 hour
   const time1d = new Date(eventTime.getTime() + 24 * 60 * 60 * 1000); // +1 day
 
-  const [priceAtEvent, price1h, price1d] = await Promise.all([
+  const [atEvent, at1h, at1d] = await Promise.all([
     fetchHistoricalPrice(symbol, eventTime.toISOString()),
     fetchHistoricalPrice(symbol, time1h.toISOString()),
     fetchHistoricalPrice(symbol, time1d.toISOString()),
   ]);
 
-  return { priceAtEvent, price1h, price1d };
+  // Use the source from the first successful fetch
+  const source = atEvent.source !== "error" ? atEvent.source :
+                 at1h.source !== "error" ? at1h.source :
+                 at1d.source !== "error" ? at1d.source : "none";
+
+  return {
+    priceAtEvent: atEvent.price,
+    price1h: at1h.price,
+    price1d: at1d.price,
+    source
+  };
 }
 
 // Analyze sentiment based on keywords and scoring config
@@ -313,6 +324,7 @@ export default function ScraperPage() {
                 baseline1h: DEFAULT_BASELINE.baseline1h,
                 baseline1d: DEFAULT_BASELINE.baseline1d,
                 priceTrackingStatus,
+                priceSource: stockPrices.source as "yahoo" | "google" | "none",
               };
 
               notificationCount++;

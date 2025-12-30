@@ -214,6 +214,13 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                                 @ ${article.priceAtEvent.toFixed(2)}
                               </span>
                             )}
+                            {article.priceSource && article.priceSource !== "none" && (
+                              <span className={`ml-1 px-1 py-0.5 rounded text-[10px] ${
+                                article.priceSource === "yahoo" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                              }`}>
+                                {article.priceSource === "yahoo" ? "Y" : "G"}
+                              </span>
+                            )}
                           </span>
                           <div className="flex gap-1">
                             {article.matchedKeywords.slice(0, 2).map((kw, i) => (

@@ -52,6 +52,9 @@ export interface NewsArticle {
   // Status
   priceTrackingStatus?: "pending" | "1h_complete" | "1d_complete";
   is1hTruncated?: boolean;
+
+  // Data source tracking
+  priceSource?: "yahoo" | "google" | "none";
 }
 
 export interface ScraperConfig {
