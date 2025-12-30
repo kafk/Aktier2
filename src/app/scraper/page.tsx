@@ -235,12 +235,45 @@ export default function ScraperPage() {
       if (scraperRef.current.shouldStop) break;
 
       try {
-        // Fetch news from Yahoo Finance API
-        const response = await fetch(`/api/yahoo-news?symbol=${stock.symbol}`);
-        const data = await response.json();
+        // Fetch news from both Yahoo Finance and Google News
+        const [yahooResponse, googleResponse] = await Promise.all([
+          fetch(`/api/yahoo-news?symbol=${stock.symbol}`),
+          fetch(`/api/google-news?symbol=${stock.symbol}&days=${daysToScrape}`),
+        ]);
 
-        if (data.articles && Array.isArray(data.articles)) {
-          for (const article of data.articles as YahooNewsItem[]) {
+        const yahooData = await yahooResponse.json();
+        const googleData = await googleResponse.json();
+
+        // Combine articles from both sources, removing duplicates by title similarity
+        const allArticles: YahooNewsItem[] = [];
+        const seenTitles = new Set<string>();
+
+        // Add Yahoo articles first
+        if (yahooData.articles && Array.isArray(yahooData.articles)) {
+          for (const article of yahooData.articles) {
+            const normalizedTitle = article.title.toLowerCase().substring(0, 50);
+            if (!seenTitles.has(normalizedTitle)) {
+              seenTitles.add(normalizedTitle);
+              allArticles.push(article);
+            }
+          }
+        }
+
+        // Add Google articles (avoiding duplicates)
+        if (googleData.articles && Array.isArray(googleData.articles)) {
+          for (const article of googleData.articles) {
+            const normalizedTitle = article.title.toLowerCase().substring(0, 50);
+            if (!seenTitles.has(normalizedTitle)) {
+              seenTitles.add(normalizedTitle);
+              allArticles.push(article);
+            }
+          }
+        }
+
+        // Sort by date (newest first)
+        allArticles.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+
+        for (const article of allArticles) {
             if (scraperRef.current.shouldStop) break;
 
             // Wait while paused
