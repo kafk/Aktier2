@@ -31,16 +31,38 @@ interface YahooNewsItem {
   source: string;
 }
 
-// Fetch current stock price
-async function fetchStockPrice(symbol: string): Promise<number | null> {
+// Fetch historical stock price at a specific time
+async function fetchHistoricalPrice(symbol: string, timestamp: string): Promise<number | null> {
   try {
-    const response = await fetch(`/api/stock-price?symbol=${symbol}`);
+    const response = await fetch(`/api/stock-price?symbol=${symbol}&timestamp=${encodeURIComponent(timestamp)}`);
     const data = await response.json();
     return data.price || null;
   } catch (error) {
-    console.error(`Error fetching price for ${symbol}:`, error);
+    console.error(`Error fetching historical price for ${symbol}:`, error);
     return null;
   }
+}
+
+// Fetch all price points for an article (at event, +1h, +1d)
+async function fetchAllPrices(
+  symbol: string,
+  publishedAt: string
+): Promise<{
+  priceAtEvent: number | null;
+  price1h: number | null;
+  price1d: number | null;
+}> {
+  const eventTime = new Date(publishedAt);
+  const time1h = new Date(eventTime.getTime() + 60 * 60 * 1000); // +1 hour
+  const time1d = new Date(eventTime.getTime() + 24 * 60 * 60 * 1000); // +1 day
+
+  const [priceAtEvent, price1h, price1d] = await Promise.all([
+    fetchHistoricalPrice(symbol, eventTime.toISOString()),
+    fetchHistoricalPrice(symbol, time1h.toISOString()),
+    fetchHistoricalPrice(symbol, time1d.toISOString()),
+  ]);
+
+  return { priceAtEvent, price1h, price1d };
 }
 
 // Analyze sentiment based on keywords and scoring config
@@ -233,25 +255,33 @@ export default function ScraperPage() {
                 scoringConfig
               );
 
-              // Fetch current prices for the stock and SPY (market index)
-              const [stockPrice, spyPrice] = await Promise.all([
-                fetchStockPrice(stock.symbol),
-                fetchStockPrice("SPY"),
+              // Fetch historical prices for stock and SPY at event, +1h, +1d
+              const [stockPrices, spyPrices] = await Promise.all([
+                fetchAllPrices(stock.symbol, article.pubDate),
+                fetchAllPrices("SPY", article.pubDate),
               ]);
 
-              // Initialize price movement data
-              const priceMovement = stockPrice && spyPrice
+              // Calculate full price movement metrics
+              const priceMovement = stockPrices.priceAtEvent && spyPrices.priceAtEvent
                 ? calculatePriceMovement(
-                    stockPrice,
-                    null, // price1h - not available yet
-                    null, // price1d - not available yet
-                    spyPrice,
-                    null, // indexPrice1h
-                    null, // indexPrice1d
+                    stockPrices.priceAtEvent,
+                    stockPrices.price1h,
+                    stockPrices.price1d,
+                    spyPrices.priceAtEvent,
+                    spyPrices.price1h,
+                    spyPrices.price1d,
                     DEFAULT_BASELINE.baseline1h,
                     DEFAULT_BASELINE.baseline1d
                   )
                 : null;
+
+              // Determine tracking status based on available data
+              let priceTrackingStatus: "pending" | "1h_complete" | "1d_complete" = "pending";
+              if (stockPrices.price1d !== null) {
+                priceTrackingStatus = "1d_complete";
+              } else if (stockPrices.price1h !== null) {
+                priceTrackingStatus = "1h_complete";
+              }
 
               const newsArticle: NewsArticle = {
                 id: `${stock.symbol}-${Date.now()}-${Math.random()}`,
@@ -267,11 +297,22 @@ export default function ScraperPage() {
                 eventType: analysis.eventType,
                 eventCode: analysis.eventCode,
                 // Price tracking data
-                priceAtEvent: stockPrice || undefined,
-                indexPriceAtEvent: spyPrice || undefined,
+                priceAtEvent: stockPrices.priceAtEvent || undefined,
+                price1h: stockPrices.price1h,
+                price1d: stockPrices.price1d,
+                indexPriceAtEvent: spyPrices.priceAtEvent || undefined,
+                indexPrice1h: spyPrices.price1h,
+                indexPrice1d: spyPrices.price1d,
+                // Calculated metrics from priceMovement
+                stockAbsMove1h: priceMovement?.stockAbsMove1h,
+                stockAbsMove1d: priceMovement?.stockAbsMove1d,
+                newsMove1h: priceMovement?.newsMove1h,
+                newsMove1d: priceMovement?.newsMove1d,
+                newsImpact1h: priceMovement?.newsImpact1h,
+                newsImpact1d: priceMovement?.newsImpact1d,
                 baseline1h: DEFAULT_BASELINE.baseline1h,
                 baseline1d: DEFAULT_BASELINE.baseline1d,
-                priceTrackingStatus: "pending",
+                priceTrackingStatus,
               };
 
               notificationCount++;
