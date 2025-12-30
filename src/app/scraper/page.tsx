@@ -21,6 +21,7 @@ import {
 import Link from "next/link";
 import { ArrowLeft, Settings, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { calculatePriceMovement, DEFAULT_BASELINE } from "@/types/priceTracking";
 
 interface YahooNewsItem {
   title: string;
@@ -30,12 +31,30 @@ interface YahooNewsItem {
   source: string;
 }
 
+// Fetch current stock price
+async function fetchStockPrice(symbol: string): Promise<number | null> {
+  try {
+    const response = await fetch(`/api/stock-price?symbol=${symbol}`);
+    const data = await response.json();
+    return data.price || null;
+  } catch (error) {
+    console.error(`Error fetching price for ${symbol}:`, error);
+    return null;
+  }
+}
+
 // Analyze sentiment based on keywords and scoring config
 function analyzeSentiment(
   text: string,
   classifications: Classification[],
   scoringConfig: ScoringConfig
-): { sentiment: "positive" | "negative" | "neutral"; impactScore: number; matchedKeywords: string[] } {
+): {
+  sentiment: "positive" | "negative" | "neutral";
+  impactScore: number;
+  matchedKeywords: string[];
+  eventType?: string;
+  eventCode?: string;
+} {
   const lowerText = text.toLowerCase();
   const matchedKeywords: string[] = [];
   let baseScore = 1;
@@ -77,7 +96,13 @@ function analyzeSentiment(
   // Calculate impact score (capped at 1-10)
   const impactScore = Math.min(10, Math.max(1, baseScore + Math.abs(sentimentScore)));
 
-  return { sentiment, impactScore, matchedKeywords };
+  return {
+    sentiment,
+    impactScore,
+    matchedKeywords,
+    eventType: matchedClassification?.name,
+    eventCode: matchedClassification?.code,
+  };
 }
 
 // Check if article matches selected keywords
@@ -208,6 +233,26 @@ export default function ScraperPage() {
                 scoringConfig
               );
 
+              // Fetch current prices for the stock and SPY (market index)
+              const [stockPrice, spyPrice] = await Promise.all([
+                fetchStockPrice(stock.symbol),
+                fetchStockPrice("SPY"),
+              ]);
+
+              // Initialize price movement data
+              const priceMovement = stockPrice && spyPrice
+                ? calculatePriceMovement(
+                    stockPrice,
+                    null, // price1h - not available yet
+                    null, // price1d - not available yet
+                    spyPrice,
+                    null, // indexPrice1h
+                    null, // indexPrice1d
+                    DEFAULT_BASELINE.baseline1h,
+                    DEFAULT_BASELINE.baseline1d
+                  )
+                : null;
+
               const newsArticle: NewsArticle = {
                 id: `${stock.symbol}-${Date.now()}-${Math.random()}`,
                 title: article.title,
@@ -219,6 +264,14 @@ export default function ScraperPage() {
                 matchedKeywords: Array.from(new Set([...matchedKws, ...analysis.matchedKeywords])),
                 sentiment: analysis.sentiment,
                 impactScore: analysis.impactScore,
+                eventType: analysis.eventType,
+                eventCode: analysis.eventCode,
+                // Price tracking data
+                priceAtEvent: stockPrice || undefined,
+                indexPriceAtEvent: spyPrice || undefined,
+                baseline1h: DEFAULT_BASELINE.baseline1h,
+                baseline1d: DEFAULT_BASELINE.baseline1d,
+                priceTrackingStatus: "pending",
               };
 
               notificationCount++;

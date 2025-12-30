@@ -22,6 +22,36 @@ export interface NewsArticle {
   matchedKeywords: string[];
   sentiment: "positive" | "negative" | "neutral";
   impactScore: number;
+
+  // Event classification
+  eventType?: string;
+  eventCode?: string;
+
+  // Price tracking (all optional, populated over time)
+  priceAtEvent?: number;
+  price1h?: number | null;
+  price1d?: number | null;
+
+  // Index prices (SPY for market adjustment)
+  indexPriceAtEvent?: number;
+  indexPrice1h?: number | null;
+  indexPrice1d?: number | null;
+
+  // Calculated metrics
+  stockAbsMove1h?: number | null;
+  stockAbsMove1d?: number | null;
+  newsMove1h?: number | null;
+  newsMove1d?: number | null;
+  newsImpact1h?: number | null;
+  newsImpact1d?: number | null;
+
+  // Baselines
+  baseline1h?: number;
+  baseline1d?: number;
+
+  // Status
+  priceTrackingStatus?: "pending" | "1h_complete" | "1d_complete";
+  is1hTruncated?: boolean;
 }
 
 export interface ScraperConfig {

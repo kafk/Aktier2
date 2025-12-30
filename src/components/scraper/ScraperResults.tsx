@@ -1,17 +1,22 @@
 "use client";
 
-import { ExternalLink, TrendingUp, TrendingDown, Minus, Bell, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ExternalLink, TrendingUp, TrendingDown, Minus, Bell, Trash2, Clock, Timer, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NewsArticle } from "@/types/scraper";
+import { getImpactVerdict1h, getImpactVerdict1d } from "@/types/priceTracking";
 
 interface ScraperResultsProps {
   articles: NewsArticle[];
   onClearResults: () => void;
+  onArticleClick?: (article: NewsArticle) => void;
 }
 
-export function ScraperResults({ articles, onClearResults }: ScraperResultsProps) {
+export function ScraperResults({ articles, onClearResults, onArticleClick }: ScraperResultsProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   const getSentimentIcon = (sentiment: string) => {
     switch (sentiment) {
       case "positive":
@@ -48,6 +53,15 @@ export function ScraperResults({ articles, onClearResults }: ScraperResultsProps
     return "Noise";
   };
 
+  const getVerdictColor = (verdict: string) => {
+    switch (verdict) {
+      case "major": return "text-red-500 bg-red-500/10";
+      case "significant": return "text-orange-500 bg-orange-500/10";
+      case "mild": return "text-yellow-600 bg-yellow-500/10";
+      default: return "text-gray-500 bg-gray-500/10";
+    }
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
@@ -56,6 +70,15 @@ export function ScraperResults({ articles, onClearResults }: ScraperResultsProps
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const formatPercent = (value: number | null | undefined) => {
+    if (value === null || value === undefined) return "—";
+    return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedId(expandedId === id ? null : id);
   };
 
   return (
@@ -88,65 +111,225 @@ export function ScraperResults({ articles, onClearResults }: ScraperResultsProps
           </div>
         ) : (
           <div className="space-y-3 max-h-[600px] overflow-y-auto">
-            {articles.map((article) => (
-              <div
-                key={article.id}
-                className="p-4 rounded-lg border hover:bg-muted/50 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="default" className="font-mono">
-                        {article.matchedStock}
-                      </Badge>
-                      {getSentimentBadge(article.sentiment)}
-                      <div className="flex items-center gap-1">
-                        <div
-                          className={`w-2 h-2 rounded-full ${getImpactColor(article.impactScore)}`}
-                        />
-                        <span className="text-xs font-medium">
-                          {getImpactLabel(article.impactScore)} ({article.impactScore})
-                        </span>
+            {articles.map((article) => {
+              const has1hData = article.newsImpact1h !== undefined && article.newsImpact1h !== null;
+              const has1dData = article.newsImpact1d !== undefined && article.newsImpact1d !== null;
+              const verdict1h = has1hData ? getImpactVerdict1h(article.newsImpact1h!) : null;
+              const verdict1d = has1dData ? getImpactVerdict1d(article.newsImpact1d!) : null;
+              const isExpanded = expandedId === article.id;
+
+              return (
+                <div
+                  key={article.id}
+                  className="rounded-lg border hover:bg-muted/50 transition-colors overflow-hidden"
+                >
+                  {/* Main content */}
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        {/* Top row: Stock, Sentiment, Score */}
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <Badge variant="default" className="font-mono font-bold">
+                            {article.matchedStock}
+                          </Badge>
+                          {article.eventType && (
+                            <Badge variant="secondary" className="text-xs">
+                              {article.eventType}
+                            </Badge>
+                          )}
+                          {getSentimentBadge(article.sentiment)}
+                          <div className="flex items-center gap-1">
+                            <div
+                              className={`w-2 h-2 rounded-full ${getImpactColor(article.impactScore)}`}
+                            />
+                            <span className="text-xs font-medium">
+                              Score: {article.impactScore}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Title */}
+                        <h4 className="font-medium text-sm mb-2 line-clamp-2">
+                          {article.title}
+                        </h4>
+
+                        {/* 1H and 1D Impact Boxes */}
+                        <div className="flex gap-2 mb-2">
+                          {/* 1H Impact */}
+                          <div className={`flex-1 p-2 rounded-md border ${has1hData ? '' : 'opacity-50'}`}>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                              <Timer className="h-3 w-3" />
+                              <span>1H Reaction</span>
+                            </div>
+                            {has1hData ? (
+                              <>
+                                <div className="text-lg font-bold">
+                                  {formatPercent(article.newsImpact1h)}
+                                </div>
+                                <div className={`text-xs px-1.5 py-0.5 rounded inline-block ${getVerdictColor(verdict1h?.label || 'noise')}`}>
+                                  {verdict1h?.label}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-sm text-muted-foreground">Pending...</div>
+                            )}
+                          </div>
+
+                          {/* 1D Impact */}
+                          <div className={`flex-1 p-2 rounded-md border ${has1dData ? '' : 'opacity-50'}`}>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                              <Clock className="h-3 w-3" />
+                              <span>1D Impact</span>
+                            </div>
+                            {has1dData ? (
+                              <>
+                                <div className="text-lg font-bold">
+                                  {formatPercent(article.newsImpact1d)}
+                                </div>
+                                <div className={`text-xs px-1.5 py-0.5 rounded inline-block ${getVerdictColor(verdict1d?.label || 'noise')}`}>
+                                  {verdict1d?.label}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-sm text-muted-foreground">Pending...</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Meta info */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-muted-foreground">
+                            {article.source} • {formatDate(article.publishedAt)}
+                          </span>
+                          <div className="flex gap-1">
+                            {article.matchedKeywords.slice(0, 2).map((kw, i) => (
+                              <Badge key={i} variant="outline" className="text-xs">
+                                {kw}
+                              </Badge>
+                            ))}
+                            {article.matchedKeywords.length > 2 && (
+                              <Badge variant="secondary" className="text-xs">
+                                +{article.matchedKeywords.length - 2}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <h4 className="font-medium text-sm mb-1 line-clamp-2">
-                      {article.title}
-                    </h4>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                      {article.summary}
-                    </p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs text-muted-foreground">
-                        {article.source} • {formatDate(article.publishedAt)}
-                      </span>
-                      <div className="flex gap-1">
-                        {article.matchedKeywords.slice(0, 3).map((kw, i) => (
-                          <Badge key={i} variant="outline" className="text-xs">
-                            {kw}
-                          </Badge>
-                        ))}
-                        {article.matchedKeywords.length > 3 && (
-                          <Badge variant="secondary" className="text-xs">
-                            +{article.matchedKeywords.length - 3}
-                          </Badge>
-                        )}
+
+                      {/* Right side actions */}
+                      <div className="flex flex-col items-center gap-2">
+                        {getSentimentIcon(article.sentiment)}
+                        <a
+                          href={article.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          onClick={() => toggleExpand(article.id)}
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </Button>
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-center gap-2">
-                    {getSentimentIcon(article.sentiment)}
-                    <a
-                      href={article.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  </div>
+
+                  {/* Expanded details */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 pt-0 border-t bg-muted/30">
+                      <div className="pt-3">
+                        <h5 className="text-xs font-medium text-muted-foreground mb-2">
+                          Price Movement Breakdown
+                        </h5>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div></div>
+                          <div className="text-center font-medium">1H</div>
+                          <div className="text-center font-medium">1D</div>
+
+                          <div className="text-muted-foreground">Price at Event</div>
+                          <div className="text-center font-mono">
+                            {article.priceAtEvent ? `$${article.priceAtEvent.toFixed(2)}` : "—"}
+                          </div>
+                          <div className="text-center font-mono">
+                            {article.priceAtEvent ? `$${article.priceAtEvent.toFixed(2)}` : "—"}
+                          </div>
+
+                          <div className="text-muted-foreground">Price After</div>
+                          <div className="text-center font-mono">
+                            {article.price1h ? `$${article.price1h.toFixed(2)}` : "—"}
+                          </div>
+                          <div className="text-center font-mono">
+                            {article.price1d ? `$${article.price1d.toFixed(2)}` : "—"}
+                          </div>
+
+                          <div className="text-muted-foreground">Stock Move</div>
+                          <div className="text-center font-mono">
+                            {formatPercent(article.stockAbsMove1h)}
+                          </div>
+                          <div className="text-center font-mono">
+                            {formatPercent(article.stockAbsMove1d)}
+                          </div>
+
+                          <div className="text-muted-foreground">Market Move</div>
+                          <div className="text-center font-mono text-muted-foreground">
+                            {article.indexPriceAtEvent ? formatPercent(
+                              article.indexPrice1h && article.indexPriceAtEvent
+                                ? Math.abs(article.indexPrice1h - article.indexPriceAtEvent) / article.indexPriceAtEvent * 100
+                                : null
+                            ) : "—"}
+                          </div>
+                          <div className="text-center font-mono text-muted-foreground">
+                            {article.indexPriceAtEvent ? formatPercent(
+                              article.indexPrice1d && article.indexPriceAtEvent
+                                ? Math.abs(article.indexPrice1d - article.indexPriceAtEvent) / article.indexPriceAtEvent * 100
+                                : null
+                            ) : "—"}
+                          </div>
+
+                          <div className="text-muted-foreground">News Move</div>
+                          <div className="text-center font-mono">
+                            {formatPercent(article.newsMove1h)}
+                          </div>
+                          <div className="text-center font-mono">
+                            {formatPercent(article.newsMove1d)}
+                          </div>
+
+                          <div className="text-muted-foreground">Baseline</div>
+                          <div className="text-center font-mono text-muted-foreground">
+                            {article.baseline1h ? `${article.baseline1h.toFixed(1)}%` : "0.4%"}
+                          </div>
+                          <div className="text-center font-mono text-muted-foreground">
+                            {article.baseline1d ? `${article.baseline1d.toFixed(1)}%` : "1.2%"}
+                          </div>
+
+                          <div className="font-medium">News Impact</div>
+                          <div className={`text-center font-mono font-bold ${has1hData && article.newsImpact1h! >= 1 ? 'text-green-600' : ''}`}>
+                            {formatPercent(article.newsImpact1h)}
+                          </div>
+                          <div className={`text-center font-mono font-bold ${has1dData && article.newsImpact1d! >= 3 ? 'text-green-600' : ''}`}>
+                            {formatPercent(article.newsImpact1d)}
+                          </div>
+                        </div>
+
+                        {/* Summary */}
+                        <p className="text-xs text-muted-foreground mt-3 line-clamp-3">
+                          {article.summary}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
