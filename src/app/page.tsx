@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { Newspaper } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { ClassificationsTab } from "@/components/keywords/ClassificationsTab";
 import { ScoringConfigTab } from "@/components/keywords/ScoringConfigTab";
 import { ImpactBandsTab } from "@/components/keywords/ImpactBandsTab";
@@ -26,11 +29,19 @@ export default function KeywordManagement() {
   return (
     <main className="min-h-screen bg-background">
       <div className="container mx-auto py-8 px-4">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Keyword Management</h1>
-          <p className="text-muted-foreground mt-2">
-            Configure keywords and scoring rules for news scraping
-          </p>
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Keyword Management</h1>
+            <p className="text-muted-foreground mt-2">
+              Configure keywords and scoring rules for news scraping
+            </p>
+          </div>
+          <Link href="/scraper">
+            <Button>
+              <Newspaper className="h-4 w-4 mr-2" />
+              Go to Scraper
+            </Button>
+          </Link>
         </div>
 
         <Tabs defaultValue="classifications" className="space-y-4">
