@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
 import { ScraperControls } from "@/components/scraper/ScraperControls";
@@ -14,78 +14,105 @@ import {
 } from "@/types/scraper";
 import {
   Classification,
+  ScoringConfig,
   defaultClassifications,
+  defaultScoringConfig,
 } from "@/types/keywords";
 import Link from "next/link";
 import { ArrowLeft, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// Mock news data generator for simulation
-const mockSources = ["Reuters", "Bloomberg", "CNBC", "MarketWatch", "WSJ", "Yahoo Finance"];
-const mockTitles = [
-  "{stock} reports strong quarterly earnings, beats expectations",
-  "{stock} announces new product launch, shares surge",
-  "{stock} CEO steps down amid restructuring efforts",
-  "{stock} faces SEC investigation over accounting practices",
-  "{stock} upgrades guidance for fiscal year",
-  "{stock} to acquire smaller competitor in $2B deal",
-  "{stock} misses earnings estimates, stock drops",
-  "{stock} announces layoffs affecting 5% of workforce",
-  "{stock} receives FDA approval for new drug",
-  "{stock} partnership with tech giant boosts outlook",
-  "{stock} insider selling raises concerns",
-  "{stock} declares special dividend, investors cheer",
-  "{stock} downgrades guidance citing supply chain issues",
-  "{stock} beats revenue estimates but misses on profit",
-  "{stock} announces $500M stock buyback program",
-];
+interface YahooNewsItem {
+  title: string;
+  link: string;
+  pubDate: string;
+  description: string;
+  source: string;
+}
 
-function generateMockArticle(
-  stock: Stock,
-  keywords: ScraperKeyword[],
-  daysAgo: number
-): NewsArticle | null {
-  // Randomly decide if this article matches
-  if (Math.random() > 0.3) return null;
+// Analyze sentiment based on keywords and scoring config
+function analyzeSentiment(
+  text: string,
+  classifications: Classification[],
+  scoringConfig: ScoringConfig
+): { sentiment: "positive" | "negative" | "neutral"; impactScore: number; matchedKeywords: string[] } {
+  const lowerText = text.toLowerCase();
+  const matchedKeywords: string[] = [];
+  let baseScore = 1;
+  let sentimentScore = 0;
+  let matchedClassification: Classification | null = null;
 
-  const matchingKeywords = keywords
-    .filter(() => Math.random() > 0.5)
-    .slice(0, Math.floor(Math.random() * 3) + 1);
+  // Check against all classifications
+  for (const classification of classifications) {
+    if (!classification.isActive) continue;
 
-  if (matchingKeywords.length === 0) return null;
+    for (const keyword of classification.keywords) {
+      if (lowerText.includes(keyword.toLowerCase())) {
+        matchedKeywords.push(keyword);
+        if (!matchedClassification || classification.baseImpactScore > matchedClassification.baseImpactScore) {
+          matchedClassification = classification;
+        }
+      }
+    }
+  }
 
-  const title = mockTitles[Math.floor(Math.random() * mockTitles.length)].replace(
-    "{stock}",
-    stock.name
-  );
-  const source = mockSources[Math.floor(Math.random() * mockSources.length)];
-  const sentiment = Math.random() > 0.6 ? "positive" : Math.random() > 0.3 ? "negative" : "neutral";
-  const impactScore = Math.floor(Math.random() * 8) + 2;
+  if (matchedClassification) {
+    baseScore = matchedClassification.baseImpactScore;
+    if (matchedClassification.sentiment === "positive") sentimentScore += 1;
+    if (matchedClassification.sentiment === "negative") sentimentScore -= 1;
+  }
 
-  const publishedDate = new Date();
-  publishedDate.setDate(publishedDate.getDate() - daysAgo);
-  publishedDate.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60));
+  // Check sentiment modifiers
+  for (const modifier of scoringConfig.sentimentModifiers) {
+    if (lowerText.includes(modifier.word.toLowerCase())) {
+      sentimentScore += modifier.score;
+    }
+  }
 
-  return {
-    id: `${stock.symbol}-${Date.now()}-${Math.random()}`,
-    title,
-    source,
-    url: `https://example.com/news/${stock.symbol.toLowerCase()}-${Date.now()}`,
-    publishedAt: publishedDate.toISOString(),
-    summary: `${stock.name} (${stock.symbol}) news article mentioning keywords: ${matchingKeywords
-      .map((k) => k.keyword)
-      .join(", ")}. This is a simulated news summary for demonstration purposes.`,
-    matchedStock: stock.symbol,
-    matchedKeywords: matchingKeywords.map((k) => k.keyword),
-    sentiment,
-    impactScore,
-  };
+  // Determine final sentiment
+  let sentiment: "positive" | "negative" | "neutral" = "neutral";
+  if (sentimentScore > 0) sentiment = "positive";
+  if (sentimentScore < 0) sentiment = "negative";
+
+  // Calculate impact score (capped at 1-10)
+  const impactScore = Math.min(10, Math.max(1, baseScore + Math.abs(sentimentScore)));
+
+  return { sentiment, impactScore, matchedKeywords };
+}
+
+// Check if article matches selected keywords
+function matchesKeywords(
+  text: string,
+  keywords: ScraperKeyword[]
+): string[] {
+  const lowerText = text.toLowerCase();
+  const matched: string[] = [];
+
+  for (const kw of keywords) {
+    if (lowerText.includes(kw.keyword.toLowerCase())) {
+      matched.push(kw.keyword);
+    }
+  }
+
+  return matched;
+}
+
+// Check if article is within date range
+function isWithinDays(pubDate: string, days: number): boolean {
+  const articleDate = new Date(pubDate);
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+  return articleDate >= cutoffDate;
 }
 
 export default function ScraperPage() {
   const [classifications] = useLocalStorage<Classification[]>(
     "classifications",
     defaultClassifications
+  );
+  const [scoringConfig] = useLocalStorage<ScoringConfig>(
+    "scoringConfig",
+    defaultScoringConfig
   );
 
   const [selectedStocks, setSelectedStocks] = useLocalStorage<Stock[]>(
@@ -123,73 +150,117 @@ export default function ScraperPage() {
     scraperRef.current.shouldPause = false;
     scraperRef.current.currentLimit = notificationLimit;
 
-    setScraperState((prev) => ({
-      ...prev,
+    setScraperState({
       isRunning: true,
       isPaused: false,
       progress: 0,
       totalArticlesScanned: 0,
       matchedArticles: [],
       notificationCount: 0,
-    }));
+    });
 
-    const totalIterations = selectedStocks.length * daysToScrape;
-    let currentIteration = 0;
+    const totalStocks = selectedStocks.length;
     let articlesScanned = 0;
-    let matchedArticles: NewsArticle[] = [];
     let notificationCount = 0;
 
-    for (const stock of selectedStocks) {
+    for (let i = 0; i < selectedStocks.length; i++) {
+      const stock = selectedStocks[i];
+
       if (scraperRef.current.shouldStop) break;
 
-      for (let day = 0; day < daysToScrape; day++) {
-        if (scraperRef.current.shouldStop) break;
+      // Wait while paused
+      while (scraperRef.current.shouldPause && !scraperRef.current.shouldStop) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
 
-        // Wait while paused
-        while (scraperRef.current.shouldPause && !scraperRef.current.shouldStop) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
+      if (scraperRef.current.shouldStop) break;
 
-        if (scraperRef.current.shouldStop) break;
+      try {
+        // Fetch news from Yahoo Finance API
+        const response = await fetch(`/api/yahoo-news?symbol=${stock.symbol}`);
+        const data = await response.json();
 
-        // Simulate scanning articles
-        const articlesToScan = Math.floor(Math.random() * 5) + 1;
-        articlesScanned += articlesToScan;
+        if (data.articles && Array.isArray(data.articles)) {
+          for (const article of data.articles as YahooNewsItem[]) {
+            if (scraperRef.current.shouldStop) break;
 
-        // Generate mock article
-        const article = generateMockArticle(stock, selectedKeywords, day);
-        if (article) {
-          matchedArticles = [article, ...matchedArticles];
-          notificationCount++;
+            // Wait while paused
+            while (scraperRef.current.shouldPause && !scraperRef.current.shouldStop) {
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
 
-          setScraperState((prev) => ({
-            ...prev,
-            matchedArticles: [article, ...prev.matchedArticles],
-            notificationCount,
-            totalArticlesScanned: articlesScanned,
-          }));
+            articlesScanned++;
 
-          // Check notification limit
-          if (notificationCount >= scraperRef.current.currentLimit) {
-            scraperRef.current.shouldPause = true;
+            // Check if within date range
+            if (!isWithinDays(article.pubDate, daysToScrape)) {
+              continue;
+            }
+
+            // Check if matches keywords
+            const textToSearch = `${article.title} ${article.description}`;
+            const matchedKws = matchesKeywords(textToSearch, selectedKeywords);
+
+            if (matchedKws.length > 0) {
+              // Analyze sentiment and impact
+              const analysis = analyzeSentiment(
+                textToSearch,
+                classifications,
+                scoringConfig
+              );
+
+              const newsArticle: NewsArticle = {
+                id: `${stock.symbol}-${Date.now()}-${Math.random()}`,
+                title: article.title,
+                source: article.source || "Yahoo Finance",
+                url: article.link,
+                publishedAt: article.pubDate,
+                summary: article.description,
+                matchedStock: stock.symbol,
+                matchedKeywords: Array.from(new Set([...matchedKws, ...analysis.matchedKeywords])),
+                sentiment: analysis.sentiment,
+                impactScore: analysis.impactScore,
+              };
+
+              notificationCount++;
+
+              setScraperState((prev) => ({
+                ...prev,
+                matchedArticles: [newsArticle, ...prev.matchedArticles],
+                notificationCount,
+                totalArticlesScanned: articlesScanned,
+              }));
+
+              // Check notification limit
+              if (notificationCount >= scraperRef.current.currentLimit) {
+                scraperRef.current.shouldPause = true;
+                setScraperState((prev) => ({
+                  ...prev,
+                  isPaused: true,
+                }));
+              }
+            }
+
+            // Update progress
             setScraperState((prev) => ({
               ...prev,
-              isPaused: true,
+              totalArticlesScanned: articlesScanned,
             }));
           }
         }
+      } catch (error) {
+        console.error(`Error fetching news for ${stock.symbol}:`, error);
+      }
 
-        currentIteration++;
-        const progress = (currentIteration / totalIterations) * 100;
+      // Update progress
+      const progress = ((i + 1) / totalStocks) * 100;
+      setScraperState((prev) => ({
+        ...prev,
+        progress,
+      }));
 
-        setScraperState((prev) => ({
-          ...prev,
-          progress,
-          totalArticlesScanned: articlesScanned,
-        }));
-
-        // Simulate network delay
-        await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
+      // Small delay between stocks to avoid rate limiting
+      if (i < selectedStocks.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
 
@@ -200,7 +271,7 @@ export default function ScraperPage() {
         progress: 100,
       }));
     }
-  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit]);
+  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit, classifications, scoringConfig]);
 
   const handleStart = () => {
     runScraper();
@@ -212,7 +283,6 @@ export default function ScraperPage() {
   };
 
   const handleResume = () => {
-    // Update the limit for continuation
     scraperRef.current.currentLimit = scraperState.notificationCount + notificationLimit;
     scraperRef.current.shouldPause = false;
     setScraperState((prev) => ({ ...prev, isPaused: false }));
@@ -257,7 +327,7 @@ export default function ScraperPage() {
             </div>
             <h1 className="text-3xl font-bold tracking-tight">News Scraper</h1>
             <p className="text-muted-foreground mt-1">
-              Monitor stocks for keyword-matching news articles
+              Monitor stocks for keyword-matching news from Yahoo Finance
             </p>
           </div>
           <Link href="/">
