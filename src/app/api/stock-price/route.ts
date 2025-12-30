@@ -231,20 +231,99 @@ async function fetchHistoricalPrice(
   }
 }
 
-// Try to get historical price from Google Finance daily data
+// Try to get historical price from Google Finance
+// Google has chart data embedded in their page that we can try to extract
 async function fetchGoogleHistoricalPrice(
   symbol: string,
   targetTime: Date
 ): Promise<number | null> {
   try {
-    // Google Finance doesn't easily expose historical intraday data
-    // But we can try to get close prices from their chart data
     const googleSymbol = getGoogleSymbol(symbol);
+    const now = new Date();
+    const daysDiff = Math.ceil((now.getTime() - targetTime.getTime()) / (24 * 60 * 60 * 1000));
 
-    // For now, just return the current price as a fallback
-    // This is not ideal but better than nothing
-    const currentPrice = await fetchGooglePrice(symbol);
-    return currentPrice;
+    // Determine the appropriate time range for the chart
+    let range = "1D";
+    if (daysDiff <= 1) range = "1D";
+    else if (daysDiff <= 5) range = "5D";
+    else if (daysDiff <= 30) range = "1M";
+    else if (daysDiff <= 90) range = "3M";
+    else range = "1Y";
+
+    // Try to fetch Google Finance page with chart data
+    const url = `https://www.google.com/finance/quote/${googleSymbol}`;
+
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Google Finance HTTP ${response.status} for ${symbol}`);
+      return null;
+    }
+
+    const html = await response.text();
+
+    // Try to extract chart data from the page
+    // Google embeds price data in various formats
+
+    // Method 1: Look for data-last-price (current price as fallback)
+    const currentPriceMatch = html.match(/data-last-price="([0-9.]+)"/);
+    const currentPrice = currentPriceMatch ? parseFloat(currentPriceMatch[1]) : null;
+
+    // Method 2: Look for previous close price (useful for 1D calculations)
+    const prevCloseMatch = html.match(/data-price-at-close="([0-9.]+)"/);
+    const prevClose = prevCloseMatch ? parseFloat(prevCloseMatch[1]) : null;
+
+    // Method 3: Try to find chart data JSON (embedded in page)
+    // Look for patterns like "[[timestamp,price],...]"
+    const chartDataMatch = html.match(/\[\[(\d{10,13}),([0-9.]+)\]/g);
+
+    if (chartDataMatch && chartDataMatch.length > 0) {
+      const targetTimestamp = targetTime.getTime();
+      let closestPrice: number | null = null;
+      let closestDiff = Infinity;
+
+      for (const match of chartDataMatch) {
+        const parts = match.match(/\[(\d+),([0-9.]+)\]/);
+        if (parts) {
+          let timestamp = parseInt(parts[1]);
+          // Convert to milliseconds if needed
+          if (timestamp < 10000000000) timestamp *= 1000;
+
+          const price = parseFloat(parts[2]);
+          const diff = Math.abs(timestamp - targetTimestamp);
+
+          if (diff < closestDiff) {
+            closestDiff = diff;
+            closestPrice = price;
+          }
+        }
+      }
+
+      if (closestPrice !== null) {
+        console.log(`Google historical: found chart data price ${closestPrice} for ${symbol}`);
+        return closestPrice;
+      }
+    }
+
+    // Method 4: If target is within last day and we have previous close, use that
+    if (daysDiff <= 1 && prevClose) {
+      console.log(`Google historical: using previous close ${prevClose} for ${symbol}`);
+      return prevClose;
+    }
+
+    // Fallback to current price (not ideal but better than nothing)
+    if (currentPrice) {
+      console.log(`Google historical: falling back to current price ${currentPrice} for ${symbol}`);
+      return currentPrice;
+    }
+
+    return null;
   } catch (error) {
     console.error(`Error fetching Google historical for ${symbol}:`, error);
     return null;
