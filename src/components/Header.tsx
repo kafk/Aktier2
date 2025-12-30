@@ -5,8 +5,10 @@ import { ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// App version - update this when releasing new versions
-export const APP_VERSION = "1.0.0";
+// App version - includes build date set at build time
+// Format: MAJOR.MINOR.PATCH-YYMMDD
+const BUILD_DATE = process.env.NEXT_PUBLIC_BUILD_DATE || "dev";
+export const APP_VERSION = `1.0.1-${BUILD_DATE}`;
 
 interface HeaderProps {
   title: string;
