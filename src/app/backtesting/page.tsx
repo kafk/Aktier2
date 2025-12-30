@@ -2,8 +2,9 @@
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Header } from "@/components/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { KpiCard } from "@/components/backtesting/KpiCard";
 import { FilterBar } from "@/components/backtesting/FilterBar";
@@ -68,23 +69,13 @@ export default function BacktestingPage() {
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="container mx-auto py-8 px-4">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-2">
-            <Link href="/scraper">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Back to Scraper
-              </Button>
-            </Link>
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">Backtesting</h1>
-          <p className="text-muted-foreground mt-1">
-            Validate how well Impact Scores predict price movements
-          </p>
-        </div>
+      <Header
+        title="Backtesting"
+        subtitle="Validate how well Impact Scores predict price movements"
+        backHref="/scraper"
+      />
 
+      <div className="container mx-auto px-4">
         {/* Filter Bar */}
         <div className="mb-6">
           <FilterBar

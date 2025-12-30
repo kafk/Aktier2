@@ -19,8 +19,9 @@ import {
   defaultScoringConfig,
 } from "@/types/keywords";
 import Link from "next/link";
-import { ArrowLeft, Settings, BarChart3 } from "lucide-react";
+import { Settings, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Header } from "@/components/Header";
 import { calculatePriceMovement, DEFAULT_BASELINE } from "@/types/priceTracking";
 
 interface YahooNewsItem {
@@ -419,39 +420,26 @@ export default function ScraperPage() {
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="container mx-auto py-8 px-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Link href="/">
-                <Button variant="ghost" size="sm">
-                  <ArrowLeft className="h-4 w-4 mr-1" />
-                  Back
-                </Button>
-              </Link>
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight">News Scraper</h1>
-            <p className="text-muted-foreground mt-1">
-              Monitor stocks for keyword-matching news from Yahoo Finance
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/backtesting">
-              <Button variant="outline">
-                <BarChart3 className="h-4 w-4 mr-2" />
-                Backtesting
-              </Button>
-            </Link>
-            <Link href="/">
-              <Button variant="outline">
-                <Settings className="h-4 w-4 mr-2" />
-                Keywords
-              </Button>
-            </Link>
-          </div>
-        </div>
+      <Header
+        title="News Scraper"
+        subtitle="Monitor stocks for keyword-matching news from Yahoo Finance"
+        backHref="/"
+      >
+        <Link href="/backtesting">
+          <Button variant="outline">
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Backtesting
+          </Button>
+        </Link>
+        <Link href="/">
+          <Button variant="outline">
+            <Settings className="h-4 w-4 mr-2" />
+            Keywords
+          </Button>
+        </Link>
+      </Header>
 
+      <div className="container mx-auto px-4">
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Left Column - Configuration */}
           <div className="space-y-6">

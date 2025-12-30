@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Version } from "@/components/Version";
 
 export const metadata: Metadata = {
   title: "Aktier - Keyword Management",
@@ -14,10 +13,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="font-sans antialiased">
-        {children}
-        <Version />
-      </body>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   );
 }
