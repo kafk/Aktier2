@@ -54,7 +54,7 @@ export interface NewsArticle {
   is1hTruncated?: boolean;
 
   // Data source tracking
-  priceSource?: "yahoo" | "google" | "none";
+  priceSource?: "polygon" | "yahoo" | "google" | "none";
 }
 
 export interface ScraperConfig {
