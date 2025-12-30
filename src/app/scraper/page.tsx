@@ -19,7 +19,7 @@ import {
   defaultScoringConfig,
 } from "@/types/keywords";
 import Link from "next/link";
-import { ArrowLeft, Settings } from "lucide-react";
+import { ArrowLeft, Settings, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface YahooNewsItem {
@@ -330,12 +330,20 @@ export default function ScraperPage() {
               Monitor stocks for keyword-matching news from Yahoo Finance
             </p>
           </div>
-          <Link href="/">
-            <Button variant="outline">
-              <Settings className="h-4 w-4 mr-2" />
-              Manage Keywords
-            </Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href="/backtesting">
+              <Button variant="outline">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Backtesting
+              </Button>
+            </Link>
+            <Link href="/">
+              <Button variant="outline">
+                <Settings className="h-4 w-4 mr-2" />
+                Keywords
+              </Button>
+            </Link>
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
