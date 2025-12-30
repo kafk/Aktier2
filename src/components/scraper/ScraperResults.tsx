@@ -116,6 +116,11 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
               const has1dData = article.newsImpact1d !== undefined && article.newsImpact1d !== null;
               const verdict1h = has1hData ? getImpactVerdict1h(article.newsImpact1h!) : null;
               const verdict1d = has1dData ? getImpactVerdict1d(article.newsImpact1d!) : null;
+
+              // Determine if we tried to fetch but got no data (market closed, etc.)
+              const hasPriceAtEvent = article.priceAtEvent !== undefined;
+              const is1hUnavailable = hasPriceAtEvent && !has1hData;
+              const is1dUnavailable = hasPriceAtEvent && !has1dData;
               const isExpanded = expandedId === article.id;
 
               return (
@@ -170,6 +175,8 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                                   {verdict1h?.label}
                                 </div>
                               </>
+                            ) : is1hUnavailable ? (
+                              <div className="text-sm text-muted-foreground">N/A (market closed)</div>
                             ) : (
                               <div className="text-sm text-muted-foreground">Pending...</div>
                             )}
@@ -190,6 +197,8 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                                   {verdict1d?.label}
                                 </div>
                               </>
+                            ) : is1dUnavailable ? (
+                              <div className="text-sm text-muted-foreground">N/A (market closed)</div>
                             ) : (
                               <div className="text-sm text-muted-foreground">Pending...</div>
                             )}
@@ -200,6 +209,11 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs text-muted-foreground">
                             {article.source} • {formatDate(article.publishedAt)}
+                            {article.priceAtEvent && (
+                              <span className="ml-1 font-mono">
+                                @ ${article.priceAtEvent.toFixed(2)}
+                              </span>
+                            )}
                           </span>
                           <div className="flex gap-1">
                             {article.matchedKeywords.slice(0, 2).map((kw, i) => (
