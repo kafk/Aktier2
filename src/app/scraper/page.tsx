@@ -385,7 +385,6 @@ export default function ScraperPage() {
               ...prev,
               totalArticlesScanned: articlesScanned,
             }));
-          }
         }
       } catch (error) {
         console.error(`Error fetching news for ${stock.symbol}:`, error);
