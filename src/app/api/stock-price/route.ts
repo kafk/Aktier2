@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 // Polygon/Massive API key from environment
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY || process.env.MASSIVE_API_KEY;
 
+// Debug: log if API key is configured
+console.log(`Polygon API key configured: ${POLYGON_API_KEY ? 'YES (length: ' + POLYGON_API_KEY.length + ')' : 'NO'}`);
+
 interface PriceResponse {
   symbol: string;
   price: number | null;
@@ -57,6 +60,7 @@ async function fetchPolygonHistoricalPrice(
   targetTime: Date
 ): Promise<number | null> {
   if (!POLYGON_API_KEY) {
+    console.log(`Polygon: No API key for ${symbol}`);
     return null;
   }
 
@@ -66,6 +70,8 @@ async function fetchPolygonHistoricalPrice(
     const nextDate = new Date(targetTime.getTime() + 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0];
+
+    console.log(`Polygon: Fetching ${symbol} for date ${targetDate}, target time: ${targetTime.toISOString()}`);
 
     // Fetch 5-minute bars for the target day
     const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/5/minute/${targetDate}/${targetDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
@@ -82,8 +88,10 @@ async function fetchPolygonHistoricalPrice(
     }
 
     const data = await response.json();
+    console.log(`Polygon response for ${symbol}: status=${data.status}, resultsCount=${data.resultsCount}, results=${data.results?.length || 0}`);
 
     if (!data.results || data.results.length === 0) {
+      console.log(`Polygon: No 5-min data for ${symbol} on ${targetDate}, trying daily...`);
       // Try daily bar as fallback
       const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${targetDate}/${nextDate}?adjusted=true&apiKey=${POLYGON_API_KEY}`;
       const dailyResponse = await fetch(dailyUrl);
