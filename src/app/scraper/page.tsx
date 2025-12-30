@@ -324,7 +324,7 @@ export default function ScraperPage() {
                 baseline1h: DEFAULT_BASELINE.baseline1h,
                 baseline1d: DEFAULT_BASELINE.baseline1d,
                 priceTrackingStatus,
-                priceSource: stockPrices.source as "yahoo" | "google" | "none",
+                priceSource: stockPrices.source as "polygon" | "yahoo" | "google" | "none",
               };
 
               notificationCount++;

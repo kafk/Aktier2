@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Polygon/Massive API key from environment
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY || process.env.MASSIVE_API_KEY;
+
 interface PriceResponse {
   symbol: string;
   price: number | null;
@@ -9,6 +12,112 @@ interface PriceResponse {
   source?: string;
   error?: string;
 }
+
+// ============ POLYGON/MASSIVE API ============
+
+// Fetch current price from Polygon/Massive
+async function fetchPolygonPrice(symbol: string): Promise<number | null> {
+  if (!POLYGON_API_KEY) {
+    console.log("Polygon API key not configured");
+    return null;
+  }
+
+  try {
+    // Get previous day's close (most reliable for current price)
+    const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?apiKey=${POLYGON_API_KEY}`;
+
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Polygon HTTP ${response.status} for ${symbol}`);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (data.results && data.results.length > 0) {
+      // 'c' is close price
+      return data.results[0].c;
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error fetching Polygon price for ${symbol}:`, error);
+    return null;
+  }
+}
+
+// Fetch historical price from Polygon/Massive at specific time
+async function fetchPolygonHistoricalPrice(
+  symbol: string,
+  targetTime: Date
+): Promise<number | null> {
+  if (!POLYGON_API_KEY) {
+    return null;
+  }
+
+  try {
+    // Format dates for Polygon API (YYYY-MM-DD)
+    const targetDate = targetTime.toISOString().split("T")[0];
+    const nextDate = new Date(targetTime.getTime() + 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+
+    // Fetch 5-minute bars for the target day
+    const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/5/minute/${targetDate}/${targetDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
+
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Polygon historical HTTP ${response.status} for ${symbol}`);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (!data.results || data.results.length === 0) {
+      // Try daily bar as fallback
+      const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${targetDate}/${nextDate}?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+      const dailyResponse = await fetch(dailyUrl);
+      const dailyData = await dailyResponse.json();
+
+      if (dailyData.results && dailyData.results.length > 0) {
+        console.log(`Polygon: using daily close for ${symbol} on ${targetDate}`);
+        return dailyData.results[0].c;
+      }
+      return null;
+    }
+
+    // Find the bar closest to target time
+    const targetTimestamp = targetTime.getTime();
+    let closestBar = data.results[0];
+    let closestDiff = Math.abs(data.results[0].t - targetTimestamp);
+
+    for (const bar of data.results) {
+      const diff = Math.abs(bar.t - targetTimestamp);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestBar = bar;
+      }
+    }
+
+    console.log(`Polygon: found price ${closestBar.c} for ${symbol} at ${new Date(closestBar.t).toISOString()}`);
+    return closestBar.c; // close price of the bar
+  } catch (error) {
+    console.error(`Error fetching Polygon historical for ${symbol}:`, error);
+    return null;
+  }
+}
+
+// ============ GOOGLE FINANCE ============
 
 // Map common symbols to Google Finance format (SYMBOL:EXCHANGE)
 function getGoogleSymbol(symbol: string): string {
@@ -135,7 +244,23 @@ async function fetchYahooPrice(symbol: string): Promise<PriceResponse> {
 
 // Fetch price with fallback: Yahoo -> Google
 async function fetchPriceWithFallback(symbol: string): Promise<PriceResponse> {
-  // Try Yahoo first
+  // Try Polygon/Massive first (most reliable, official API)
+  if (POLYGON_API_KEY) {
+    const polygonPrice = await fetchPolygonPrice(symbol);
+    if (polygonPrice !== null) {
+      return {
+        symbol,
+        price: polygonPrice,
+        previousClose: null,
+        timestamp: new Date().toISOString(),
+        marketState: "CLOSED",
+        source: "polygon",
+      };
+    }
+    console.log(`Polygon failed for ${symbol}, trying Yahoo...`);
+  }
+
+  // Try Yahoo second
   const yahooResult = await fetchYahooPrice(symbol);
   if (yahooResult.price !== null) {
     return yahooResult;
@@ -335,7 +460,16 @@ async function fetchHistoricalPriceWithFallback(
   symbol: string,
   targetTime: Date
 ): Promise<{ price: number | null; source: string }> {
-  // Try Yahoo first (has better historical data)
+  // Try Polygon/Massive first (most reliable, official API with intraday data)
+  if (POLYGON_API_KEY) {
+    const polygonPrice = await fetchPolygonHistoricalPrice(symbol, targetTime);
+    if (polygonPrice !== null) {
+      return { price: polygonPrice, source: "polygon" };
+    }
+    console.log(`Polygon historical failed for ${symbol}, trying Yahoo...`);
+  }
+
+  // Try Yahoo second (has decent historical data)
   const yahooPrice = await fetchHistoricalPrice(symbol, targetTime);
   if (yahooPrice !== null) {
     return { price: yahooPrice, source: "yahoo" };
