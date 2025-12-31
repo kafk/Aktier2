@@ -318,11 +318,52 @@ function simpleExtractArticles(html: string, tab: string, sourceUrl: string): Pl
   return articles;
 }
 
-// Fetch articles from Placera - single request with high limit
+// Fetch from Placera search page (sok.html) - this has better structure
+async function fetchSearchPage(keyword: string = ""): Promise<{ articles: PlaceraNewsItem[]; bytes: number }> {
+  // Use empty search to get recent articles, or specific keyword
+  const searchUrl = `https://www.placera.se/placera/sok.html${keyword ? `?sok=${encodeURIComponent(keyword)}` : ""}`;
+
+  // Rate limiting
+  const now = Date.now();
+  const timeSinceLastFetch = now - lastFetchTime;
+  if (timeSinceLastFetch < MIN_FETCH_INTERVAL_MS) {
+    await new Promise(resolve => setTimeout(resolve, MIN_FETCH_INTERVAL_MS - timeSinceLastFetch));
+  }
+  lastFetchTime = Date.now();
+
+  try {
+    console.log(`Fetching Placera search page: ${searchUrl}`);
+
+    const response = await fetch(searchUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7",
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Search page fetch failed: ${response.status}`);
+      return { articles: [], bytes: 0 };
+    }
+
+    const html = await response.text();
+    console.log(`Search page received: ${html.length} bytes`);
+
+    const articles = parseHtml(html, "search", searchUrl);
+    console.log(`Search page parsed: ${articles.length} articles`);
+
+    return { articles, bytes: html.length };
+  } catch (error) {
+    console.error(`Error fetching search page:`, error);
+    return { articles: [], bytes: 0 };
+  }
+}
+
+// Fetch articles from Placera - try multiple sources
 async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
-  // Use a high limit - Placera might honor it in the HTML response
   const actualLimit = Math.max(limit, 500);
   const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${actualLimit}`;
 
@@ -330,10 +371,28 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
     return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
   }
 
-  // Placera doesn't support offset pagination, so just fetch once with a high limit
-  const { articles, bytes } = await fetchSinglePage(tab, actualLimit, 0);
+  // Try telegram page first
+  let { articles, bytes } = await fetchSinglePage(tab, actualLimit, 0);
+  let fetchStatus = `telegram: ${articles.length} articles`;
 
-  const fetchStatus = `${articles.length} articles, ${bytes} bytes`;
+  // If telegram page returned few articles, also try search page
+  if (articles.length < 30 && tab === "telegram") {
+    console.log("Telegram returned few articles, trying search page...");
+    const searchResult = await fetchSearchPage();
+
+    if (searchResult.articles.length > 0) {
+      // Merge articles, avoiding duplicates by title
+      const existingTitles = new Set(articles.map(a => a.title.toLowerCase()));
+      for (const article of searchResult.articles) {
+        if (!existingTitles.has(article.title.toLowerCase())) {
+          articles.push(article);
+          existingTitles.add(article.title.toLowerCase());
+        }
+      }
+      bytes += searchResult.bytes;
+      fetchStatus = `telegram: ${articles.length - searchResult.articles.length}, search: ${searchResult.articles.length}, total: ${articles.length}`;
+    }
+  }
 
   // Update cache
   if (articles.length > 0) {
@@ -346,6 +405,59 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
 function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNewsItem[] {
   const $ = cheerio.load(html);
   const articles: PlaceraNewsItem[] = [];
+
+  // First try the search page structure (from Placera's sok.html)
+  // This has .searchItem containers with h2, .intro, .publishedBy
+  const searchItems = $(".searchItem");
+  if (searchItems.length > 0) {
+    console.log(`Found ${searchItems.length} .searchItem elements`);
+    searchItems.each((_, element) => {
+      const $item = $(element);
+
+      // Title from h2
+      const title = $item.find("h2").text().trim();
+
+      // Description from .intro
+      const description = $item.find(".intro").text().trim();
+
+      // Link from href attribute
+      const href = $item.attr("href") || $item.find("a").first().attr("href") || "";
+      const link = href.startsWith("http") ? href : `https://www.placera.se${href}`;
+
+      // Date from .publishedBy (format: "Publicerad: 2025-12-30 14:30")
+      const publishedText = $item.find(".publishedBy").text().trim();
+      let pubDate = new Date().toISOString();
+
+      // Extract date from "Publicerad: 2025-12-30" or similar
+      const dateMatch = publishedText.match(/Publicerad:\s*(\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) {
+        pubDate = `${dateMatch[1]}T12:00:00.000Z`;
+      } else {
+        // Try other date patterns
+        const extracted = extractDateFromText(publishedText);
+        if (extracted) {
+          pubDate = parseSwedishDate(extracted);
+        }
+      }
+
+      if (title && title.length > 5) {
+        articles.push({
+          title,
+          link,
+          pubDate,
+          description,
+          source: `Placera ${category} (${sourceUrl})`,
+          category,
+          ticker: extractTicker(title),
+        });
+      }
+    });
+
+    if (articles.length > 0) {
+      console.log(`Parsed ${articles.length} articles from .searchItem structure`);
+      return articles;
+    }
+  }
 
   // Try multiple common selectors for news items
   // These may need adjustment based on actual Placera HTML structure
