@@ -3,6 +3,79 @@ import { NextRequest, NextResponse } from "next/server";
 // Polygon/Massive API key from environment
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY || process.env.MASSIVE_API_KEY;
 
+// ============ AVANZA API (Swedish Stocks) ============
+// Common Swedish stocks with their Avanza orderbookIds
+const AVANZA_ORDERBOOK_IDS: Record<string, string> = {
+  "VOLV-B": "5240", "VOLV-B.ST": "5240",
+  "ERIC-B": "5765", "ERIC-B.ST": "5765",
+  "SEB-A": "725", "SEB-A.ST": "725",
+  "SWED-A": "5287", "SWED-A.ST": "5287",
+  "HM-B": "5235", "HM-B.ST": "5235",
+  "ABB": "5447", "ABB.ST": "5447",
+  "ASSA-B": "24", "ASSA-B.ST": "24",
+  "ATCO-A": "45", "ATCO-A.ST": "45",
+  "ATCO-B": "46", "ATCO-B.ST": "46",
+  "AZN": "3524", "AZN.ST": "3524",
+  "SAND": "650", "SAND.ST": "650",
+  "SHB-A": "668", "SHB-A.ST": "668",
+  "SKF-B": "677", "SKF-B.ST": "677",
+  "TELIA": "5353", "TELIA.ST": "5353",
+  "INVE-B": "5247", "INVE-B.ST": "5247",
+  "HEXA-B": "5279", "HEXA-B.ST": "5279",
+  "SAAB-B": "653", "SAAB-B.ST": "653",
+  "NIBE-B": "5284", "NIBE-B.ST": "5284",
+  "EVO": "746107", "EVO.ST": "746107",
+  "SINCH": "658963", "SINCH.ST": "658963",
+  "NDA-SE": "542691", "NDA-SE.ST": "542691",
+};
+
+// Check if symbol is Swedish
+function isSwedishStock(symbol: string): boolean {
+  const upper = symbol.toUpperCase();
+  return upper.endsWith(".ST") || AVANZA_ORDERBOOK_IDS[upper] !== undefined;
+}
+
+// Fetch price from Avanza
+async function fetchAvanzaPrice(symbol: string): Promise<number | null> {
+  const upper = symbol.toUpperCase();
+  const orderbookId = AVANZA_ORDERBOOK_IDS[upper] || AVANZA_ORDERBOOK_IDS[upper.replace(".ST", "")];
+
+  if (!orderbookId) {
+    console.log(`No Avanza orderbookId for ${symbol}`);
+    return null;
+  }
+
+  try {
+    const url = `https://www.avanza.se/_api/market-guide/stock/${orderbookId}`;
+    console.log(`Fetching Avanza: ${url}`);
+
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Avanza HTTP ${response.status} for ${symbol}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const price = data.lastPrice || data.quote?.last;
+
+    if (price) {
+      console.log(`Avanza: ${symbol} = ${price} SEK`);
+      return price;
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Avanza error for ${symbol}:`, error);
+    return null;
+  }
+}
+
 // Debug: log if API key is configured
 console.log(`Polygon API key configured: ${POLYGON_API_KEY ? 'YES (length: ' + POLYGON_API_KEY.length + ')' : 'NO'}`);
 
@@ -327,9 +400,26 @@ async function fetchYahooPrice(symbol: string): Promise<PriceResponse> {
   }
 }
 
-// Fetch price with fallback: Yahoo -> Google
+// Fetch price with fallback: Avanza (Swedish) -> Polygon -> Yahoo -> Google
 async function fetchPriceWithFallback(symbol: string): Promise<PriceResponse> {
-  // Try Polygon/Massive first (most reliable, official API)
+  // For Swedish stocks, try Avanza first
+  if (isSwedishStock(symbol)) {
+    console.log(`${symbol} is Swedish, trying Avanza...`);
+    const avanzaPrice = await fetchAvanzaPrice(symbol);
+    if (avanzaPrice !== null) {
+      return {
+        symbol,
+        price: avanzaPrice,
+        previousClose: null,
+        timestamp: new Date().toISOString(),
+        marketState: "CLOSED",
+        source: "avanza",
+      };
+    }
+    console.log(`Avanza failed for ${symbol}, trying other sources...`);
+  }
+
+  // Try Polygon/Massive (most reliable for US stocks)
   if (POLYGON_API_KEY) {
     const polygonPrice = await fetchPolygonPrice(symbol);
     if (polygonPrice !== null) {
@@ -345,7 +435,7 @@ async function fetchPriceWithFallback(symbol: string): Promise<PriceResponse> {
     console.log(`Polygon failed for ${symbol}, trying Yahoo...`);
   }
 
-  // Try Yahoo second
+  // Try Yahoo
   const yahooResult = await fetchYahooPrice(symbol);
   if (yahooResult.price !== null) {
     return yahooResult;
@@ -545,7 +635,17 @@ async function fetchHistoricalPriceWithFallback(
   symbol: string,
   targetTime: Date
 ): Promise<{ price: number | null; source: string }> {
-  // Try Polygon/Massive first (most reliable, official API with intraday data)
+  // For Swedish stocks, try Avanza first
+  // Note: Avanza doesn't have historical intraday, but current price is better than nothing
+  if (isSwedishStock(symbol)) {
+    const avanzaPrice = await fetchAvanzaPrice(symbol);
+    if (avanzaPrice !== null) {
+      console.log(`Using Avanza current price for ${symbol} (historical not available)`);
+      return { price: avanzaPrice, source: "avanza" };
+    }
+  }
+
+  // Try Polygon/Massive (most reliable for US stocks with intraday data)
   if (POLYGON_API_KEY) {
     const polygonPrice = await fetchPolygonHistoricalPrice(symbol, targetTime);
     if (polygonPrice !== null) {
@@ -554,7 +654,7 @@ async function fetchHistoricalPriceWithFallback(
     console.log(`Polygon historical failed for ${symbol}, trying Yahoo...`);
   }
 
-  // Try Yahoo second (has decent historical data)
+  // Try Yahoo (has decent historical data)
   const yahooPrice = await fetchHistoricalPrice(symbol, targetTime);
   if (yahooPrice !== null) {
     return { price: yahooPrice, source: "yahoo" };
