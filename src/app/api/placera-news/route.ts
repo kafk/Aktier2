@@ -29,7 +29,7 @@ const MIN_FETCH_INTERVAL_MS = 2000; // 2 seconds between requests
 
 // Cache to avoid hammering the server
 const cache = new Map<string, { data: PlaceraNewsItem[]; timestamp: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
+const CACHE_TTL_MS = 1 * 60 * 1000; // 1 minute cache (reduced for testing)
 
 interface FetchResult {
   articles: PlaceraNewsItem[];
@@ -42,8 +42,8 @@ interface FetchResult {
 async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
-  // Use _rsc parameter like Placera's frontend does for React Server Components
-  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}&_rsc=1`;
+  // Request full HTML page with limit parameter - Placera honors this in HTML mode
+  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
@@ -62,10 +62,9 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
     const response = await fetch(sourceUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
         "Cache-Control": "no-cache",
-        "RSC": "1",
       },
     });
 
