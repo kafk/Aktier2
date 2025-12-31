@@ -167,7 +167,7 @@ function extractTicker(title: string): string | undefined {
   return tickerMatch ? tickerMatch[1] : undefined;
 }
 
-// Fetch a single page from Placera
+// Fetch a single page from Placera - simplified approach
 async function fetchSinglePage(tab: string, limit: number, offset: number = 0): Promise<{ articles: PlaceraNewsItem[]; bytes: number }> {
   const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}${offset > 0 ? `&offset=${offset}` : ""}`;
 
@@ -180,55 +180,93 @@ async function fetchSinglePage(tab: string, limit: number, offset: number = 0): 
   lastFetchTime = Date.now();
 
   try {
-    // Try RSC format first (returns more data)
-    const rscUrl = `${sourceUrl}&_rsc=1`;
-    console.log(`Fetching Placera: ${rscUrl}`);
+    console.log(`Fetching Placera HTML: ${sourceUrl}`);
 
-    const rscResponse = await fetch(rscUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/x-component",
-        "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
-        "RSC": "1",
-        "Next-Url": "/telegram",
-        "Cache-Control": "no-cache",
-      },
-    });
-
-    if (rscResponse.ok) {
-      const rscData = await rscResponse.text();
-      console.log(`Placera RSC received: ${rscData.length} bytes`);
-
-      const articles = parseRscResponse(rscData, tab, sourceUrl);
-      if (articles.length > 0) {
-        console.log(`Placera RSC ${tab}: parsed ${articles.length} articles`);
-        return { articles, bytes: rscData.length };
-      }
-    }
-
-    // Fallback to HTML
-    console.log(`RSC failed or returned 0, trying HTML...`);
+    // Just fetch HTML directly - skip RSC which is unreliable
     const htmlResponse = await fetch(sourceUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
-        "Cache-Control": "no-cache",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
       },
     });
 
-    if (htmlResponse.ok) {
-      const html = await htmlResponse.text();
-      const articles = parseHtml(html, tab, sourceUrl);
-      console.log(`Placera HTML ${tab}: parsed ${articles.length} articles`);
-      return { articles, bytes: html.length };
+    console.log(`Placera response status: ${htmlResponse.status}`);
+
+    if (!htmlResponse.ok) {
+      console.error(`Placera fetch failed: ${htmlResponse.status} ${htmlResponse.statusText}`);
+      return { articles: [], bytes: 0 };
     }
 
-    return { articles: [], bytes: 0 };
+    const html = await htmlResponse.text();
+    console.log(`Placera HTML received: ${html.length} bytes`);
+
+    // Try parsing with cheerio first
+    let articles = parseHtml(html, tab, sourceUrl);
+    console.log(`Placera cheerio parsing found: ${articles.length} articles`);
+
+    // If cheerio found nothing, try RSC parsing on the HTML (it might contain RSC data)
+    if (articles.length === 0) {
+      console.log("Trying RSC parsing on HTML content...");
+      articles = parseRscResponse(html, tab, sourceUrl);
+      console.log(`RSC parsing found: ${articles.length} articles`);
+    }
+
+    // If still nothing, try very simple regex extraction
+    if (articles.length === 0) {
+      console.log("Trying simple regex extraction...");
+      articles = simpleExtractArticles(html, tab, sourceUrl);
+      console.log(`Simple regex found: ${articles.length} articles`);
+    }
+
+    return { articles, bytes: html.length };
   } catch (error) {
     console.error(`Error fetching Placera ${tab}:`, error);
     return { articles: [], bytes: 0 };
   }
+}
+
+// Very simple article extraction as last resort
+function simpleExtractArticles(html: string, tab: string, sourceUrl: string): PlaceraNewsItem[] {
+  const articles: PlaceraNewsItem[] = [];
+  const seenLinks = new Set<string>();
+
+  // Find all telegram article links
+  const linkPattern = /href="(\/telegram\/[^"]+)"/g;
+  let match;
+
+  while ((match = linkPattern.exec(html)) !== null) {
+    const href = match[1];
+    if (seenLinks.has(href)) continue;
+    seenLinks.add(href);
+
+    // Extract title from slug
+    const slug = href.split("/").pop() || "";
+    if (slug.length < 10) continue;
+
+    // Convert slug to readable title
+    const title = slug
+      .replace(/-/g, " ")
+      .replace(/^\w/, c => c.toUpperCase());
+
+    articles.push({
+      title,
+      link: `https://www.placera.se${href}`,
+      pubDate: new Date().toISOString(),
+      description: "",
+      source: `Placera ${tab} (${sourceUrl})`,
+      category: tab,
+    });
+  }
+
+  return articles;
 }
 
 // Fetch articles from Placera with pagination
