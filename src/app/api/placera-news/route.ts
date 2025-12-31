@@ -383,26 +383,72 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
 
   // If no structured items found, try to extract from raw text/links
   if (articles.length === 0) {
+    console.log("No structured items found, trying link extraction fallback...");
+    const seenHrefs = new Set<string>();
+
     $("a").each((_, element) => {
       const $a = $(element);
       const href = $a.attr("href") || "";
       const text = $a.text().trim();
 
-      // Filter for likely news links
+      // Filter for likely news links - be less restrictive
       if (
-        text.length > 20 &&
-        (href.includes("/telegram/") || href.includes("/nyheter/") || href.includes("/analys/"))
+        text.length > 10 &&
+        (href.includes("/telegram/") || href.includes("/nyheter/") || href.includes("/analys/")) &&
+        !seenHrefs.has(href)
       ) {
+        seenHrefs.add(href);
+        const fullLink = href.startsWith("http") ? href : `https://www.placera.se${href}`;
+
+        // Try to find a date near this link
+        const parent = $a.parent();
+        const parentText = parent.text();
+        const dateStr = extractDateFromText(parentText);
+        const pubDate = dateStr ? parseSwedishDate(dateStr) : new Date().toISOString();
+
         articles.push({
           title: text,
-          link: href.startsWith("http") ? href : `https://www.placera.se${href}`,
-          pubDate: new Date().toISOString(),
+          link: fullLink,
+          pubDate,
           description: "",
           source: `Placera ${category} (${sourceUrl})`,
           category,
         });
       }
     });
+
+    console.log(`Link extraction found ${articles.length} articles`);
+  }
+
+  // Ultimate fallback: parse raw HTML for telegram links
+  if (articles.length === 0) {
+    console.log("Trying raw HTML regex fallback...");
+    const rawHtml = $.html();
+    const linkPattern = /href="(\/telegram\/[^"]+)"/g;
+    const seenLinks = new Set<string>();
+    let match;
+
+    while ((match = linkPattern.exec(rawHtml)) !== null) {
+      const href = match[1];
+      if (!seenLinks.has(href)) {
+        seenLinks.add(href);
+        const slug = href.split("/").pop() || "";
+        const title = slug.replace(/-/g, " ").replace(/^\w/, c => c.toUpperCase());
+
+        if (title.length > 10) {
+          articles.push({
+            title,
+            link: `https://www.placera.se${href}`,
+            pubDate: new Date().toISOString(),
+            description: "",
+            source: `Placera ${category} (${sourceUrl})`,
+            category,
+          });
+        }
+      }
+    }
+
+    console.log(`Raw regex fallback found ${articles.length} articles`);
   }
 
   return articles;
