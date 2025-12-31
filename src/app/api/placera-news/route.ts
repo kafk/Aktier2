@@ -40,31 +40,59 @@ interface FetchResult {
 
 // Extract date from text using various patterns
 function extractDateFromText(text: string): string | null {
-  // Pattern 1: Swedish format "31 dec 14:30" or "31 december 14:30"
+  // Pattern 1: "Igår, 15:15" (yesterday) or "Idag, 15:15" (today)
+  const relativeMatch = text.match(/(igår|idag),?\s*(\d{2}):(\d{2})/i);
+  if (relativeMatch) {
+    const isYesterday = relativeMatch[1].toLowerCase() === "igår";
+    const now = new Date();
+    if (isYesterday) {
+      now.setDate(now.getDate() - 1);
+    }
+    const dateStr = now.toISOString().split("T")[0];
+    return `${dateStr} ${relativeMatch[2]}:${relativeMatch[3]}`;
+  }
+
+  // Pattern 2: Swedish format "31 dec 14:30" or "31 december 14:30"
   const swedishMatch = text.match(/(\d{1,2})\s+(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)\w*\s+(\d{2}):(\d{2})/i);
   if (swedishMatch) {
     return swedishMatch[0];
   }
 
-  // Pattern 2: ISO format "2025-12-31T14:30:00"
+  // Pattern 3: ISO format "2025-12-31T14:30:00"
   const isoMatch = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/);
   if (isoMatch) {
     return isoMatch[0];
   }
 
-  // Pattern 3: Date format "2025-12-31 14:30"
+  // Pattern 4: Date format "2025-12-31 14:30"
   const dateTimeMatch = text.match(/\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/);
   if (dateTimeMatch) {
     return dateTimeMatch[0];
   }
 
-  // Pattern 4: Just time "14:30" (today's articles) - look for time in context
+  // Pattern 5: Just time "14:30" (today's articles) - look for time in context
   const timeOnlyMatch = text.match(/["\s](\d{2}):(\d{2})["\s,]/);
   if (timeOnlyMatch) {
     // Return the time, parseSwedishDate will handle adding today's date
     return `${timeOnlyMatch[1]}:${timeOnlyMatch[2]}`;
   }
 
+  return null;
+}
+
+// Extract date from URL slug (e.g., "article-name-20251230" -> 2025-12-30)
+function extractDateFromUrl(url: string): string | null {
+  // Look for 8-digit date pattern at end of URL: YYYYMMDD
+  const dateMatch = url.match(/(\d{4})(\d{2})(\d{2})(?:[^0-9]|$)/);
+  if (dateMatch) {
+    const year = parseInt(dateMatch[1]);
+    const month = parseInt(dateMatch[2]);
+    const day = parseInt(dateMatch[3]);
+    // Validate it's a reasonable date
+    if (year >= 2020 && year <= 2030 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}T12:00:00`;
+    }
+  }
   return null;
 }
 
@@ -145,12 +173,17 @@ function parseRscResponse(rscData: string, category: string, sourceUrl: string):
   if (articles.length === 0 && linkPositions.length > 0) {
     for (const { link } of linkPositions) {
       const slug = link.split("/").pop() || "";
-      const title = slug.replace(/-/g, " ").replace(/^\w/, c => c.toUpperCase());
+      const title = slug
+        .replace(/-\d{8}$/, "") // Remove date suffix
+        .replace(/-/g, " ")
+        .replace(/^\w/, c => c.toUpperCase());
       if (title.length > 10) {
+        // Try to get date from URL
+        const dateFromUrl = extractDateFromUrl(link);
         articles.push({
           title,
           link: `https://www.placera.se${link}`,
-          pubDate: new Date().toISOString(),
+          pubDate: dateFromUrl || new Date().toISOString(),
           description: "",
           source: `Placera ${category} (${sourceUrl})`,
           category,
@@ -251,8 +284,9 @@ function simpleExtractArticles(html: string, tab: string, sourceUrl: string): Pl
     const slug = href.split("/").pop() || "";
     if (slug.length < 10) continue;
 
-    // Convert slug to readable title
+    // Convert slug to readable title (remove date suffix if present)
     const title = slug
+      .replace(/-\d{8}$/, "") // Remove date suffix like -20251230
       .replace(/-/g, " ")
       .replace(/^\w/, c => c.toUpperCase());
 
@@ -261,9 +295,15 @@ function simpleExtractArticles(html: string, tab: string, sourceUrl: string): Pl
     const contextEnd = Math.min(html.length, match.index + 500);
     const context = html.substring(contextStart, contextEnd);
 
-    // Try to extract a date from the context
-    const dateStr = extractDateFromText(context);
-    const pubDate = dateStr ? parseSwedishDate(dateStr) : new Date().toISOString();
+    // Try to extract a date from the context, then from URL, then default to now
+    let pubDate: string;
+    const dateFromContext = extractDateFromText(context);
+    if (dateFromContext) {
+      pubDate = parseSwedishDate(dateFromContext);
+    } else {
+      const dateFromUrl = extractDateFromUrl(href);
+      pubDate = dateFromUrl || new Date().toISOString();
+    }
 
     articles.push({
       title,
