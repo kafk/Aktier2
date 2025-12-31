@@ -38,11 +38,112 @@ interface FetchResult {
   sourceUrl: string;
 }
 
-// Fetch articles from Placera with a large limit
+// Parse RSC (React Server Components) response format to extract articles
+function parseRscResponse(rscData: string, category: string, sourceUrl: string): PlaceraNewsItem[] {
+  const articles: PlaceraNewsItem[] = [];
+
+  // RSC format contains JSON-like data with article information
+  // Look for patterns like: "title":"...", "href":"/telegram/...", timestamps, etc.
+
+  // Extract all article-like objects from the RSC response
+  // Pattern 1: Look for telegram article links and their associated titles
+  const telegramLinkPattern = /\/telegram\/[a-z0-9-]+/gi;
+  const links = rscData.match(telegramLinkPattern) || [];
+  const uniqueLinks = [...new Set(links)];
+
+  // Pattern 2: Extract titles - they often appear as strings before or after links
+  // Look for title-like patterns in the RSC data
+  const titlePattern = /"([^"]{20,200})"/g;
+  const potentialTitles: string[] = [];
+  let match;
+  while ((match = titlePattern.exec(rscData)) !== null) {
+    const text = match[1];
+    // Filter for likely article titles (Swedish/financial news patterns)
+    if (
+      text.length > 25 &&
+      !text.includes("http") &&
+      !text.includes("className") &&
+      !text.includes("children") &&
+      !text.startsWith("/") &&
+      !text.includes("\\u") &&
+      /[a-zåäöA-ZÅÄÖ]/.test(text)
+    ) {
+      potentialTitles.push(text);
+    }
+  }
+
+  // Pattern 3: Look for date/time patterns
+  const dateTimePattern = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})|(\d{1,2}\s+(?:jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)\w*\s+\d{2}:\d{2})/gi;
+  const dates = rscData.match(dateTimePattern) || [];
+
+  console.log(`RSC Parse: Found ${uniqueLinks.length} links, ${potentialTitles.length} potential titles, ${dates.length} dates`);
+
+  // Try to pair links with titles
+  // In RSC format, titles and links are often near each other in the serialized data
+  for (let i = 0; i < uniqueLinks.length && i < potentialTitles.length; i++) {
+    const link = uniqueLinks[i];
+    const title = potentialTitles[i];
+    const pubDate = dates[i] ? parseSwedishDate(dates[i]) : new Date().toISOString();
+
+    if (title && link) {
+      articles.push({
+        title,
+        link: `https://www.placera.se${link}`,
+        pubDate,
+        description: "",
+        source: `Placera ${category} (${sourceUrl})`,
+        category,
+        ticker: extractTicker(title),
+      });
+    }
+  }
+
+  // If pairing didn't work well, try a more aggressive approach
+  // Look for complete article patterns in the RSC data
+  if (articles.length < 10) {
+    // Try finding JSON-like article objects
+    const articleJsonPattern = /\{"[^}]*title[^}]*href[^}]*\}/gi;
+    const jsonMatches = rscData.match(articleJsonPattern) || [];
+
+    for (const jsonStr of jsonMatches) {
+      try {
+        // Try to extract title and href from each match
+        const titleMatch = jsonStr.match(/"title":"([^"]+)"/);
+        const hrefMatch = jsonStr.match(/"href":"([^"]+)"/);
+        if (titleMatch && hrefMatch) {
+          const title = titleMatch[1];
+          const href = hrefMatch[1];
+          if (!articles.some(a => a.title === title)) {
+            articles.push({
+              title,
+              link: href.startsWith("http") ? href : `https://www.placera.se${href}`,
+              pubDate: new Date().toISOString(),
+              description: "",
+              source: `Placera ${category} (${sourceUrl})`,
+              category,
+              ticker: extractTicker(title),
+            });
+          }
+        }
+      } catch {
+        // Skip malformed JSON
+      }
+    }
+  }
+
+  return articles;
+}
+
+function extractTicker(title: string): string | undefined {
+  const tickerMatch = title.match(/\b([A-Z]{2,5}(?:\.ST)?)\b/);
+  return tickerMatch ? tickerMatch[1] : undefined;
+}
+
+// Fetch articles from Placera using RSC format for more data
 async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
-  // Request full HTML page with limit parameter - Placera honors this in HTML mode
+  // Use RSC format - this returns more data than plain HTML
   const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
@@ -58,31 +159,75 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
   lastFetchTime = Date.now();
 
   try {
-    console.log(`Fetching Placera: ${sourceUrl}`);
-    const response = await fetch(sourceUrl, {
+    // First try RSC format (returns more data)
+    const rscUrl = `${sourceUrl}&_rsc=1`;
+    console.log(`Fetching Placera RSC: ${rscUrl}`);
+
+    const rscResponse = await fetch(rscUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/x-component",
         "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
+        "RSC": "1",
+        "Next-Router-State-Tree": "%5B%22%22%2C%7B%22children%22%3A%5B%22telegram%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%5D%7D%5D%7D%2Cnull%2Cnull%2Ctrue%5D",
+        "Next-Url": "/telegram",
         "Cache-Control": "no-cache",
       },
     });
 
-    if (!response.ok) {
-      console.error(`Placera fetch failed: ${response.status} ${response.statusText}`);
-      return { articles: [], htmlLength: 0, fetchStatus: `HTTP ${response.status}`, sourceUrl };
+    let articles: PlaceraNewsItem[] = [];
+    let responseLength = 0;
+    let fetchStatus = "";
+
+    if (rscResponse.ok) {
+      const rscData = await rscResponse.text();
+      responseLength = rscData.length;
+      console.log(`Placera RSC received: ${rscData.length} bytes for ${rscUrl}`);
+
+      articles = parseRscResponse(rscData, tab, sourceUrl);
+      console.log(`Placera RSC ${tab}: parsed ${articles.length} articles`);
+      fetchStatus = `rsc (${articles.length} articles, ${responseLength} bytes)`;
     }
 
-    const html = await response.text();
-    console.log(`Placera HTML received: ${html.length} bytes for ${sourceUrl}`);
+    // If RSC didn't return enough articles, fall back to HTML
+    if (articles.length < 20) {
+      console.log(`RSC returned only ${articles.length} articles, trying HTML fallback...`);
 
-    const articles = parseHtml(html, tab, sourceUrl);
-    console.log(`Placera ${tab}: parsed ${articles.length} articles`);
+      const htmlResponse = await fetch(sourceUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
+          "Cache-Control": "no-cache",
+        },
+      });
+
+      if (htmlResponse.ok) {
+        const html = await htmlResponse.text();
+        responseLength = html.length;
+        console.log(`Placera HTML received: ${html.length} bytes for ${sourceUrl}`);
+
+        const htmlArticles = parseHtml(html, tab, sourceUrl);
+        console.log(`Placera HTML ${tab}: parsed ${htmlArticles.length} articles`);
+
+        // Merge RSC and HTML results, preferring more results
+        if (htmlArticles.length > articles.length) {
+          articles = htmlArticles;
+          fetchStatus = `html fallback (${articles.length} articles, ${responseLength} bytes)`;
+        } else {
+          fetchStatus = `rsc+html (${articles.length} rsc, ${htmlArticles.length} html)`;
+        }
+      }
+    }
+
+    if (articles.length === 0) {
+      return { articles: [], htmlLength: responseLength, fetchStatus: "no articles found", sourceUrl };
+    }
 
     // Update cache
     cache.set(cacheKey, { data: articles, timestamp: Date.now() });
 
-    return { articles, htmlLength: html.length, fetchStatus: `ok (${articles.length} articles)`, sourceUrl };
+    return { articles, htmlLength: responseLength, fetchStatus, sourceUrl };
   } catch (error) {
     console.error(`Error fetching Placera ${tab}:`, error);
     return { articles: [], htmlLength: 0, fetchStatus: `error: ${error}`, sourceUrl };
