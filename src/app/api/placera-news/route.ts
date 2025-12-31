@@ -233,12 +233,12 @@ async function fetchSinglePage(tab: string, limit: number, offset: number = 0): 
   }
 }
 
-// Very simple article extraction as last resort
+// Very simple article extraction as last resort - with date extraction
 function simpleExtractArticles(html: string, tab: string, sourceUrl: string): PlaceraNewsItem[] {
   const articles: PlaceraNewsItem[] = [];
   const seenLinks = new Set<string>();
 
-  // Find all telegram article links
+  // Find all telegram article links with surrounding context for date extraction
   const linkPattern = /href="(\/telegram\/[^"]+)"/g;
   let match;
 
@@ -256,10 +256,19 @@ function simpleExtractArticles(html: string, tab: string, sourceUrl: string): Pl
       .replace(/-/g, " ")
       .replace(/^\w/, c => c.toUpperCase());
 
+    // Look for date in surrounding context (500 chars before and after the link)
+    const contextStart = Math.max(0, match.index - 500);
+    const contextEnd = Math.min(html.length, match.index + 500);
+    const context = html.substring(contextStart, contextEnd);
+
+    // Try to extract a date from the context
+    const dateStr = extractDateFromText(context);
+    const pubDate = dateStr ? parseSwedishDate(dateStr) : new Date().toISOString();
+
     articles.push({
       title,
       link: `https://www.placera.se${href}`,
-      pubDate: new Date().toISOString(),
+      pubDate,
       description: "",
       source: `Placera ${tab} (${sourceUrl})`,
       category: tab,
@@ -269,53 +278,29 @@ function simpleExtractArticles(html: string, tab: string, sourceUrl: string): Pl
   return articles;
 }
 
-// Fetch articles from Placera with pagination
+// Fetch articles from Placera - single request with high limit
 async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
-  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
+  // Use a high limit - Placera might honor it in the HTML response
+  const actualLimit = Math.max(limit, 500);
+  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${actualLimit}`;
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
   }
 
-  const allArticles: PlaceraNewsItem[] = [];
-  const seenTitles = new Set<string>();
-  let totalBytes = 0;
-  const pageSize = 100; // Fetch 100 at a time
-  const maxPages = Math.ceil(limit / pageSize);
+  // Placera doesn't support offset pagination, so just fetch once with a high limit
+  const { articles, bytes } = await fetchSinglePage(tab, actualLimit, 0);
 
-  // Fetch multiple pages to get more articles
-  for (let page = 0; page < maxPages; page++) {
-    const offset = page * pageSize;
-    const { articles, bytes } = await fetchSinglePage(tab, pageSize, offset);
-    totalBytes += bytes;
-
-    // Add unique articles
-    for (const article of articles) {
-      const key = article.title.toLowerCase();
-      if (!seenTitles.has(key)) {
-        seenTitles.add(key);
-        allArticles.push(article);
-      }
-    }
-
-    console.log(`Page ${page + 1}: got ${articles.length} articles, total unique: ${allArticles.length}`);
-
-    // Stop if we got no new articles (pagination exhausted) or have enough
-    if (articles.length === 0 || allArticles.length >= limit) {
-      break;
-    }
-  }
-
-  const fetchStatus = `${allArticles.length} articles from ${Math.min(maxPages, Math.ceil(allArticles.length / pageSize) + 1)} pages, ${totalBytes} bytes`;
+  const fetchStatus = `${articles.length} articles, ${bytes} bytes`;
 
   // Update cache
-  if (allArticles.length > 0) {
-    cache.set(cacheKey, { data: allArticles, timestamp: Date.now() });
+  if (articles.length > 0) {
+    cache.set(cacheKey, { data: articles, timestamp: Date.now() });
   }
 
-  return { articles: allArticles, htmlLength: totalBytes, fetchStatus, sourceUrl };
+  return { articles, htmlLength: bytes, fetchStatus, sourceUrl };
 }
 
 function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNewsItem[] {
