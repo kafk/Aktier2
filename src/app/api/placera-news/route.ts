@@ -34,14 +34,16 @@ interface FetchResult {
   articles: PlaceraNewsItem[];
   htmlLength: number;
   fetchStatus: string;
+  sourceUrl: string;
 }
 
 async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
+  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return { articles: cached.data, htmlLength: 0, fetchStatus: "cached" };
+    return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
   }
 
   // Rate limiting
@@ -52,11 +54,9 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
   }
   lastFetchTime = Date.now();
 
-  const url = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
-
   try {
-    console.log(`Fetching Placera: ${url}`);
-    const response = await fetch(url, {
+    console.log(`Fetching Placera: ${sourceUrl}`);
+    const response = await fetch(sourceUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -66,26 +66,26 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
 
     if (!response.ok) {
       console.error(`Placera fetch failed: ${response.status} ${response.statusText}`);
-      return { articles: [], htmlLength: 0, fetchStatus: `HTTP ${response.status}` };
+      return { articles: [], htmlLength: 0, fetchStatus: `HTTP ${response.status}`, sourceUrl };
     }
 
     const html = await response.text();
     console.log(`Placera HTML received: ${html.length} bytes`);
 
-    const articles = parseHtml(html, tab);
+    const articles = parseHtml(html, tab, sourceUrl);
     console.log(`Placera parsed: ${articles.length} articles`);
 
     // Update cache
     cache.set(cacheKey, { data: articles, timestamp: Date.now() });
 
-    return { articles, htmlLength: html.length, fetchStatus: "ok" };
+    return { articles, htmlLength: html.length, fetchStatus: "ok", sourceUrl };
   } catch (error) {
     console.error(`Error fetching Placera ${tab}:`, error);
-    return { articles: [], htmlLength: 0, fetchStatus: `error: ${error}` };
+    return { articles: [], htmlLength: 0, fetchStatus: `error: ${error}`, sourceUrl };
   }
 }
 
-function parseHtml(html: string, category: string): PlaceraNewsItem[] {
+function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNewsItem[] {
   const $ = cheerio.load(html);
   const articles: PlaceraNewsItem[] = [];
 
@@ -149,10 +149,8 @@ function parseHtml(html: string, category: string): PlaceraNewsItem[] {
           $item.find(".summary, .description, .excerpt, p").first().text().trim() ||
           "";
 
-        // Extract source if available
-        const source =
-          $item.find(".source, [class*='source']").text().trim() ||
-          `Placera ${category}`;
+        // Source shows which Placera tab the article came from
+        const source = `Placera ${category} (${sourceUrl})`;
 
         // Try to extract ticker symbols (common Swedish/US patterns)
         const tickerMatch = title.match(/\b([A-Z]{2,5}(?:\.ST)?)\b/);
@@ -193,7 +191,7 @@ function parseHtml(html: string, category: string): PlaceraNewsItem[] {
           link: href.startsWith("http") ? href : `https://www.placera.se${href}`,
           pubDate: new Date().toISOString(),
           description: "",
-          source: `Placera ${category}`,
+          source: `Placera ${category} (${sourceUrl})`,
           category,
         });
       }
