@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
 import { ScraperControls } from "@/components/scraper/ScraperControls";
@@ -184,6 +184,31 @@ export default function ScraperPage() {
   );
   const [daysToScrape, setDaysToScrape] = useState(7);
   const [notificationLimit, setNotificationLimit] = useState(10);
+  const [hasInitializedKeywords, setHasInitializedKeywords] = useState(false);
+
+  // Initialize keywords from all active classifications on first load
+  useEffect(() => {
+    if (!hasInitializedKeywords && classifications.length > 0 && selectedKeywords.length === 0) {
+      const allKeywords: ScraperKeyword[] = [];
+      for (const classification of classifications) {
+        if (classification.isActive) {
+          for (const kw of classification.keywords) {
+            allKeywords.push({
+              id: `${classification.id}-${kw}`,
+              keyword: kw.toLowerCase(),
+              source: "classification",
+              classificationId: classification.id,
+              classificationName: classification.name,
+            });
+          }
+        }
+      }
+      if (allKeywords.length > 0) {
+        setSelectedKeywords(allKeywords);
+      }
+      setHasInitializedKeywords(true);
+    }
+  }, [classifications, selectedKeywords, hasInitializedKeywords, setSelectedKeywords]);
 
   const [scraperState, setScraperState] = useState<ScraperState>({
     isRunning: false,

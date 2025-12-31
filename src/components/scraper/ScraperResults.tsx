@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ExternalLink, TrendingUp, TrendingDown, Minus, Bell, Trash2, Clock, Timer, ChevronDown, ChevronUp } from "lucide-react";
+import { useState, useMemo } from "react";
+import { ExternalLink, TrendingUp, TrendingDown, Minus, Bell, Trash2, Clock, Timer, ChevronDown, ChevronUp, Filter, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,38 @@ interface ScraperResultsProps {
 
 export function ScraperResults({ articles, onClearResults, onArticleClick }: ScraperResultsProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+
+  // Get unique event types/labels from articles
+  const availableLabels = useMemo(() => {
+    const labels = new Set<string>();
+    articles.forEach(article => {
+      if (article.eventType) {
+        labels.add(article.eventType);
+      }
+    });
+    return Array.from(labels).sort();
+  }, [articles]);
+
+  // Filter articles by selected labels
+  const filteredArticles = useMemo(() => {
+    if (selectedLabels.length === 0) return articles;
+    return articles.filter(article =>
+      article.eventType && selectedLabels.includes(article.eventType)
+    );
+  }, [articles, selectedLabels]);
+
+  const toggleLabel = (label: string) => {
+    setSelectedLabels(prev =>
+      prev.includes(label)
+        ? prev.filter(l => l !== label)
+        : [...prev, label]
+    );
+  };
+
+  const clearFilters = () => {
+    setSelectedLabels([]);
+  };
 
   const getSentimentIcon = (sentiment: string) => {
     switch (sentiment) {
@@ -91,7 +123,9 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
               News Alerts
             </CardTitle>
             <CardDescription>
-              {articles.length} matching articles found
+              {selectedLabels.length > 0
+                ? `${filteredArticles.length} of ${articles.length} articles`
+                : `${articles.length} matching articles found`}
             </CardDescription>
           </div>
           {articles.length > 0 && (
@@ -101,17 +135,59 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
             </Button>
           )}
         </div>
+
+        {/* Label Filter */}
+        {availableLabels.length > 0 && (
+          <div className="mt-3 pt-3 border-t">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Filter:</span>
+              {availableLabels.map(label => (
+                <Badge
+                  key={label}
+                  variant={selectedLabels.includes(label) ? "default" : "outline"}
+                  className="cursor-pointer text-xs"
+                  onClick={() => toggleLabel(label)}
+                >
+                  {label}
+                </Badge>
+              ))}
+              {selectedLabels.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={clearFilters}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
-        {articles.length === 0 ? (
+        {filteredArticles.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <Bell className="h-12 w-12 mx-auto mb-4 opacity-20" />
-            <p>No news alerts yet</p>
-            <p className="text-sm">Start the scraper to find matching articles</p>
+            {articles.length > 0 && selectedLabels.length > 0 ? (
+              <>
+                <p>No articles match the selected filters</p>
+                <Button variant="link" size="sm" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              </>
+            ) : (
+              <>
+                <p>No news alerts yet</p>
+                <p className="text-sm">Start the scraper to find matching articles</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-3 max-h-[600px] overflow-y-auto">
-            {articles.map((article) => {
+            {filteredArticles.map((article) => {
               const has1hData = article.newsImpact1h !== undefined && article.newsImpact1h !== null;
               const has1dData = article.newsImpact1d !== undefined && article.newsImpact1d !== null;
               const verdict1h = has1hData ? getImpactVerdict1h(article.newsImpact1h!) : null;
