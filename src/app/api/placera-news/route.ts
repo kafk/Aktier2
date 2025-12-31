@@ -360,46 +360,57 @@ async function fetchSearchPage(keyword: string = ""): Promise<{ articles: Placer
   }
 }
 
-// Fetch articles from Placera - try multiple sources
+// Fetch articles from Placera - prioritize search page for better structure
 async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
-  const actualLimit = Math.max(limit, 500);
-  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${actualLimit}`;
+  const sourceUrl = `https://www.placera.se/placera/sok.html`;
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
   }
 
-  // Try telegram page first
-  let { articles, bytes } = await fetchSinglePage(tab, actualLimit, 0);
-  let fetchStatus = `telegram: ${articles.length} articles`;
+  let allArticles: PlaceraNewsItem[] = [];
+  let totalBytes = 0;
+  const statusParts: string[] = [];
 
-  // If telegram page returned few articles, also try search page
-  if (articles.length < 30 && tab === "telegram") {
-    console.log("Telegram returned few articles, trying search page...");
-    const searchResult = await fetchSearchPage();
+  // Primary: Use search page (sok.html) - has better structure with .searchItem
+  console.log("Fetching from search page (primary source)...");
+  const searchResult = await fetchSearchPage();
+  if (searchResult.articles.length > 0) {
+    allArticles = searchResult.articles;
+    totalBytes += searchResult.bytes;
+    statusParts.push(`search: ${searchResult.articles.length}`);
+  }
 
-    if (searchResult.articles.length > 0) {
-      // Merge articles, avoiding duplicates by title
-      const existingTitles = new Set(articles.map(a => a.title.toLowerCase()));
-      for (const article of searchResult.articles) {
-        if (!existingTitles.has(article.title.toLowerCase())) {
-          articles.push(article);
-          existingTitles.add(article.title.toLowerCase());
+  // Secondary: Also fetch telegram page if we need more articles
+  if (allArticles.length < limit) {
+    console.log("Also fetching telegram page for more articles...");
+    const telegramResult = await fetchSinglePage(tab, 500, 0);
+    if (telegramResult.articles.length > 0) {
+      // Merge, avoiding duplicates by link
+      const existingLinks = new Set(allArticles.map(a => a.link.toLowerCase()));
+      let added = 0;
+      for (const article of telegramResult.articles) {
+        if (!existingLinks.has(article.link.toLowerCase())) {
+          allArticles.push(article);
+          existingLinks.add(article.link.toLowerCase());
+          added++;
         }
       }
-      bytes += searchResult.bytes;
-      fetchStatus = `telegram: ${articles.length - searchResult.articles.length}, search: ${searchResult.articles.length}, total: ${articles.length}`;
+      totalBytes += telegramResult.bytes;
+      statusParts.push(`telegram: +${added}`);
     }
   }
 
+  const fetchStatus = statusParts.length > 0 ? statusParts.join(", ") + `, total: ${allArticles.length}` : "0 articles";
+
   // Update cache
-  if (articles.length > 0) {
-    cache.set(cacheKey, { data: articles, timestamp: Date.now() });
+  if (allArticles.length > 0) {
+    cache.set(cacheKey, { data: allArticles, timestamp: Date.now() });
   }
 
-  return { articles, htmlLength: bytes, fetchStatus, sourceUrl };
+  return { articles: allArticles, htmlLength: totalBytes, fetchStatus, sourceUrl };
 }
 
 function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNewsItem[] {
