@@ -49,7 +49,7 @@ function parseRscResponse(rscData: string, category: string, sourceUrl: string):
   // Pattern 1: Look for telegram article links and their associated titles
   const telegramLinkPattern = /\/telegram\/[a-z0-9-]+/gi;
   const links = rscData.match(telegramLinkPattern) || [];
-  const uniqueLinks = [...new Set(links)];
+  const uniqueLinks = Array.from(new Set(links));
 
   // Pattern 2: Extract titles - they often appear as strings before or after links
   // Look for title-like patterns in the RSC data
