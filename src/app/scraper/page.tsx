@@ -316,10 +316,16 @@ export default function ScraperPage() {
     const analysis = analyzeSentiment(textToSearch, classifications, scoringConfig);
 
     // Fetch historical prices for stock and SPY at event, +1h, +1d
-    const [stockPrices, spyPrices] = await Promise.all([
-      fetchAllPrices(stockSymbol, article.pubDate),
-      fetchAllPrices("SPY", article.pubDate),
-    ]);
+    // DISABLED: Price fetching paused to focus on scraping
+    // Re-enable later by uncommenting the fetchAllPrices calls
+    // const [stockPrices, spyPrices] = await Promise.all([
+    //   fetchAllPrices(stockSymbol, article.pubDate),
+    //   fetchAllPrices("SPY", article.pubDate),
+    // ]);
+
+    // Placeholder values while price fetching is disabled
+    const stockPrices = { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
+    const spyPrices = { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
 
     // Calculate full price movement metrics
     const priceMovement = stockPrices.priceAtEvent && spyPrices.priceAtEvent
@@ -396,6 +402,7 @@ export default function ScraperPage() {
     } catch (e) {
       console.error("Failed to save article to localStorage:", e);
     }
+
 
     // Check notification limit
     if (newCount >= scraperRef.current.currentLimit) {
