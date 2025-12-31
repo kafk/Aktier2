@@ -293,8 +293,18 @@ export default function ScraperPage() {
     setArticlesScanned: (n: number) => void,
     setNotificationCount: (n: number) => void
   ): Promise<{ matched: boolean; newNotificationCount: number }> => {
-    // Check if within date range (excludes last 2 days)
-    if (!isWithinDays(article.pubDate, daysToScrape)) {
+    // Check if within date range
+    // For Placera: include recent articles (no 2-day exclusion) since it's current news
+    // For Yahoo: exclude last 2 days for price data accuracy
+    if (newsSource === "placera") {
+      // Just check if within the date range, don't exclude recent
+      const articleDate = new Date(article.pubDate);
+      const oldCutoff = new Date();
+      oldCutoff.setDate(oldCutoff.getDate() - daysToScrape);
+      if (articleDate < oldCutoff) {
+        return { matched: false, newNotificationCount: notificationCount };
+      }
+    } else if (!isWithinDays(article.pubDate, daysToScrape)) {
       return { matched: false, newNotificationCount: notificationCount };
     }
 
