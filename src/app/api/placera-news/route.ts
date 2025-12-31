@@ -37,14 +37,12 @@ interface FetchResult {
   sourceUrl: string;
 }
 
-async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
-  const cacheKey = `${tab}-${limit}`;
-  const cached = cache.get(cacheKey);
-  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
-
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
-  }
+// Fetch a single page with optional offset for pagination
+async function fetchSinglePage(tab: string, limit: number, offset: number = 0): Promise<{ articles: PlaceraNewsItem[]; htmlLength: number; ok: boolean; sourceUrl: string }> {
+  // Try different pagination URL patterns
+  const sourceUrl = offset > 0
+    ? `https://www.placera.se/telegram?tab=${tab}&limit=${limit}&offset=${offset}`
+    : `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
 
   // Rate limiting
   const now = Date.now();
@@ -66,23 +64,73 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
 
     if (!response.ok) {
       console.error(`Placera fetch failed: ${response.status} ${response.statusText}`);
-      return { articles: [], htmlLength: 0, fetchStatus: `HTTP ${response.status}`, sourceUrl };
+      return { articles: [], htmlLength: 0, ok: false, sourceUrl };
     }
 
     const html = await response.text();
     console.log(`Placera HTML received: ${html.length} bytes`);
 
     const articles = parseHtml(html, tab, sourceUrl);
-    console.log(`Placera parsed: ${articles.length} articles`);
+    console.log(`Placera parsed: ${articles.length} articles from offset ${offset}`);
 
-    // Update cache
-    cache.set(cacheKey, { data: articles, timestamp: Date.now() });
-
-    return { articles, htmlLength: html.length, fetchStatus: "ok", sourceUrl };
+    return { articles, htmlLength: html.length, ok: true, sourceUrl };
   } catch (error) {
     console.error(`Error fetching Placera ${tab}:`, error);
-    return { articles: [], htmlLength: 0, fetchStatus: `error: ${error}`, sourceUrl };
+    return { articles: [], htmlLength: 0, ok: false, sourceUrl };
   }
+}
+
+// Fetch multiple pages to get more articles (simulates "ladda mer" / load more)
+async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
+  const cacheKey = `${tab}-${limit}`;
+  const cached = cache.get(cacheKey);
+  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
+
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
+  }
+
+  const allArticles: PlaceraNewsItem[] = [];
+  let totalHtmlLength = 0;
+  const pageSize = 50; // Fetch 50 per page
+  const maxPages = Math.ceil(limit / pageSize); // Number of pages to fetch
+  let pagesLoaded = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const offset = page * pageSize;
+    const result = await fetchSinglePage(tab, pageSize, offset);
+
+    if (!result.ok || result.articles.length === 0) {
+      // No more articles or error, stop pagination
+      break;
+    }
+
+    allArticles.push(...result.articles);
+    totalHtmlLength += result.htmlLength;
+    pagesLoaded++;
+
+    console.log(`Placera ${tab}: loaded page ${page + 1}, total articles: ${allArticles.length}`);
+
+    // If we got fewer articles than requested, we've reached the end
+    if (result.articles.length < pageSize) {
+      break;
+    }
+
+    // Don't fetch more than needed
+    if (allArticles.length >= limit) {
+      break;
+    }
+  }
+
+  // Update cache
+  cache.set(cacheKey, { data: allArticles, timestamp: Date.now() });
+
+  return {
+    articles: allArticles,
+    htmlLength: totalHtmlLength,
+    fetchStatus: `ok (${pagesLoaded} pages)`,
+    sourceUrl
+  };
 }
 
 function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNewsItem[] {
