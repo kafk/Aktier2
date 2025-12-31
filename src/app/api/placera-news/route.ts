@@ -18,7 +18,8 @@ interface NewsResponse {
   debug?: {
     htmlLength?: number;
     fetchStatus?: string;
-    selectorsChecked?: number;
+    requestedLimit?: number;
+    note?: string;
   };
 }
 
@@ -37,12 +38,16 @@ interface FetchResult {
   sourceUrl: string;
 }
 
-// Fetch a single page with optional offset for pagination
-async function fetchSinglePage(tab: string, limit: number, offset: number = 0): Promise<{ articles: PlaceraNewsItem[]; htmlLength: number; ok: boolean; sourceUrl: string }> {
-  // Try different pagination URL patterns
-  const sourceUrl = offset > 0
-    ? `https://www.placera.se/telegram?tab=${tab}&limit=${limit}&offset=${offset}`
-    : `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
+// Fetch articles from Placera with a large limit
+async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
+  const cacheKey = `${tab}-${limit}`;
+  const cached = cache.get(cacheKey);
+  // Request a large limit directly - Placera's "ladda mer" just increases the limit parameter
+  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
+
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
+  }
 
   // Rate limiting
   const now = Date.now();
@@ -59,78 +64,29 @@ async function fetchSinglePage(tab: string, limit: number, offset: number = 0): 
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
       },
     });
 
     if (!response.ok) {
       console.error(`Placera fetch failed: ${response.status} ${response.statusText}`);
-      return { articles: [], htmlLength: 0, ok: false, sourceUrl };
+      return { articles: [], htmlLength: 0, fetchStatus: `HTTP ${response.status}`, sourceUrl };
     }
 
     const html = await response.text();
-    console.log(`Placera HTML received: ${html.length} bytes`);
+    console.log(`Placera HTML received: ${html.length} bytes for ${sourceUrl}`);
 
     const articles = parseHtml(html, tab, sourceUrl);
-    console.log(`Placera parsed: ${articles.length} articles from offset ${offset}`);
+    console.log(`Placera ${tab}: parsed ${articles.length} articles`);
 
-    return { articles, htmlLength: html.length, ok: true, sourceUrl };
+    // Update cache
+    cache.set(cacheKey, { data: articles, timestamp: Date.now() });
+
+    return { articles, htmlLength: html.length, fetchStatus: `ok (${articles.length} articles)`, sourceUrl };
   } catch (error) {
     console.error(`Error fetching Placera ${tab}:`, error);
-    return { articles: [], htmlLength: 0, ok: false, sourceUrl };
+    return { articles: [], htmlLength: 0, fetchStatus: `error: ${error}`, sourceUrl };
   }
-}
-
-// Fetch multiple pages to get more articles (simulates "ladda mer" / load more)
-async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
-  const cacheKey = `${tab}-${limit}`;
-  const cached = cache.get(cacheKey);
-  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
-
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
-  }
-
-  const allArticles: PlaceraNewsItem[] = [];
-  let totalHtmlLength = 0;
-  const pageSize = 50; // Fetch 50 per page
-  const maxPages = Math.ceil(limit / pageSize); // Number of pages to fetch
-  let pagesLoaded = 0;
-
-  for (let page = 0; page < maxPages; page++) {
-    const offset = page * pageSize;
-    const result = await fetchSinglePage(tab, pageSize, offset);
-
-    if (!result.ok || result.articles.length === 0) {
-      // No more articles or error, stop pagination
-      break;
-    }
-
-    allArticles.push(...result.articles);
-    totalHtmlLength += result.htmlLength;
-    pagesLoaded++;
-
-    console.log(`Placera ${tab}: loaded page ${page + 1}, total articles: ${allArticles.length}`);
-
-    // If we got fewer articles than requested, we've reached the end
-    if (result.articles.length < pageSize) {
-      break;
-    }
-
-    // Don't fetch more than needed
-    if (allArticles.length >= limit) {
-      break;
-    }
-  }
-
-  // Update cache
-  cache.set(cacheKey, { data: allArticles, timestamp: Date.now() });
-
-  return {
-    articles: allArticles,
-    htmlLength: totalHtmlLength,
-    fetchStatus: `ok (${pagesLoaded} pages)`,
-    sourceUrl
-  };
 }
 
 function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNewsItem[] {
@@ -347,6 +303,8 @@ export async function GET(request: NextRequest) {
       debug: {
         htmlLength: totalHtmlLength,
         fetchStatus: fetchStatuses.join(", "),
+        requestedLimit: limit,
+        note: "Placera may not honor large limit values. Check if 'ladda mer' uses a different API.",
       },
     };
 
