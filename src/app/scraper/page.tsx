@@ -156,12 +156,54 @@ function matchesKeywords(
   return matched;
 }
 
-// Check if article is within date range
+// Check if article is within date range (excluding last 2 days for price data availability)
 function isWithinDays(pubDate: string, days: number): boolean {
   const articleDate = new Date(pubDate);
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - days);
-  return articleDate >= cutoffDate;
+
+  // Exclude last 2 days (today and yesterday) - prices need time to settle
+  const recentCutoff = new Date();
+  recentCutoff.setDate(recentCutoff.getDate() - 2);
+  recentCutoff.setHours(0, 0, 0, 0);
+
+  if (articleDate >= recentCutoff) {
+    return false; // Too recent, skip
+  }
+
+  // Check if within the specified days range
+  const oldCutoff = new Date();
+  oldCutoff.setDate(oldCutoff.getDate() - days);
+  return articleDate >= oldCutoff;
+}
+
+// Check if article was published during US market hours (9:30 AM - 4:00 PM ET)
+function isDuringMarketHours(pubDate: string): boolean {
+  const articleDate = new Date(pubDate);
+
+  // Check if it's a weekday (Mon-Fri)
+  const dayOfWeek = articleDate.getUTCDay();
+  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+  if (!isWeekday) return false;
+
+  // Convert to ET (Eastern Time)
+  const utcHours = articleDate.getUTCHours();
+  const utcMinutes = articleDate.getUTCMinutes();
+
+  // Determine if DST is in effect (roughly March-November)
+  const month = articleDate.getUTCMonth();
+  const isDST = month >= 2 && month <= 10; // March (2) to November (10)
+  const offset = isDST ? -4 : -5;
+
+  // Convert to ET
+  let etHours = utcHours + offset;
+  if (etHours < 0) etHours += 24;
+
+  const etTimeInMinutes = etHours * 60 + utcMinutes;
+
+  // Market hours: 9:30 AM (570 min) to 4:00 PM (960 min) ET
+  const marketOpen = 9 * 60 + 30; // 9:30 AM = 570 minutes
+  const marketClose = 16 * 60;     // 4:00 PM = 960 minutes
+
+  return etTimeInMinutes >= marketOpen && etTimeInMinutes <= marketClose;
 }
 
 export default function ScraperPage() {
@@ -308,8 +350,13 @@ export default function ScraperPage() {
 
             articlesScanned++;
 
-            // Check if within date range
+            // Check if within date range (excludes last 2 days)
             if (!isWithinDays(article.pubDate, daysToScrape)) {
+              continue;
+            }
+
+            // Check if published during US market hours (9:30 AM - 4:00 PM ET)
+            if (!isDuringMarketHours(article.pubDate)) {
               continue;
             }
 
