@@ -5,8 +5,9 @@ import { ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// App version - increment the +N number for each update
-export const APP_VERSION = "1.01";
+// App version - increment +N for small updates, bump minor version for features
+// v1.02 -> v1.02+1 -> v1.02+2 -> v1.03 -> etc.
+export const APP_VERSION = "1.02";
 
 interface HeaderProps {
   title: string;
