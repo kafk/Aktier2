@@ -418,7 +418,7 @@ export default function ScraperPage() {
       try {
         setScraperState((prev) => ({ ...prev, progress: 5 }));
 
-        const response = await fetch(`/api/placera-news?tab=all&limit=100`);
+        const response = await fetch(`/api/placera-news?tab=all&limit=300`);
         const data = await response.json();
 
         if (data.articles && Array.isArray(data.articles)) {
