@@ -14,11 +14,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScraperState } from "@/types/scraper";
 
+type NewsSource = "yahoo" | "placera" | "both";
+
 interface ScraperControlsProps {
   daysToScrape: number;
   onDaysChange: (days: number) => void;
   notificationLimit: number;
   onNotificationLimitChange: (limit: number) => void;
+  newsSource: NewsSource;
+  onNewsSourceChange: (source: NewsSource) => void;
   scraperState: ScraperState;
   onStart: () => void;
   onPause: () => void;
@@ -32,6 +36,8 @@ export function ScraperControls({
   onDaysChange,
   notificationLimit,
   onNotificationLimitChange,
+  newsSource,
+  onNewsSourceChange,
   scraperState,
   onStart,
   onPause,
@@ -49,38 +55,59 @@ export function ScraperControls({
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Configuration */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-4">
+          {/* News Source */}
           <div className="space-y-2">
-            <Label>Days to Scrape</Label>
+            <Label>News Source</Label>
             <Select
-              value={daysToScrape.toString()}
-              onValueChange={(v) => onDaysChange(parseInt(v))}
+              value={newsSource}
+              onValueChange={(v) => onNewsSourceChange(v as NewsSource)}
               disabled={isRunning}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1">1 day</SelectItem>
-                <SelectItem value="3">3 days</SelectItem>
-                <SelectItem value="7">7 days</SelectItem>
-                <SelectItem value="14">14 days</SelectItem>
-                <SelectItem value="30">30 days</SelectItem>
-                <SelectItem value="60">60 days</SelectItem>
-                <SelectItem value="90">90 days</SelectItem>
+                <SelectItem value="placera">🇸🇪 Placera.se (Swedish)</SelectItem>
+                <SelectItem value="yahoo">🇺🇸 Yahoo Finance (US)</SelectItem>
+                <SelectItem value="both">Both Sources</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label>Pause After (notifications)</Label>
-            <Input
-              type="number"
-              min={1}
-              max={100}
-              value={notificationLimit}
-              onChange={(e) => onNotificationLimitChange(parseInt(e.target.value) || 10)}
-              disabled={isRunning && !isPaused}
-            />
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Days to Scrape</Label>
+              <Select
+                value={daysToScrape.toString()}
+                onValueChange={(v) => onDaysChange(parseInt(v))}
+                disabled={isRunning}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 day</SelectItem>
+                  <SelectItem value="3">3 days</SelectItem>
+                  <SelectItem value="7">7 days</SelectItem>
+                  <SelectItem value="14">14 days</SelectItem>
+                  <SelectItem value="30">30 days</SelectItem>
+                  <SelectItem value="60">60 days</SelectItem>
+                  <SelectItem value="90">90 days</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Pause After (notifications)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                value={notificationLimit}
+                onChange={(e) => onNotificationLimitChange(parseInt(e.target.value) || 10)}
+                disabled={isRunning && !isPaused}
+              />
+            </div>
           </div>
         </div>
 
