@@ -175,7 +175,8 @@ function isWithinDays(pubDate: string, days: number): boolean {
   return articleDate >= oldCutoff;
 }
 
-// Check if article was published during US market hours (9:30 AM - 4:00 PM ET)
+// Check if article was published during extended trading hours (6 AM - 8 PM ET)
+// Includes pre-market (6-9:30 AM), regular (9:30 AM-4 PM), and after-hours (4-8 PM)
 function isDuringMarketHours(pubDate: string): boolean {
   const articleDate = new Date(pubDate);
 
@@ -199,11 +200,11 @@ function isDuringMarketHours(pubDate: string): boolean {
 
   const etTimeInMinutes = etHours * 60 + utcMinutes;
 
-  // Market hours: 9:30 AM (570 min) to 4:00 PM (960 min) ET
-  const marketOpen = 9 * 60 + 30; // 9:30 AM = 570 minutes
-  const marketClose = 16 * 60;     // 4:00 PM = 960 minutes
+  // Extended trading hours: 6:00 AM to 8:00 PM ET
+  const extendedOpen = 6 * 60;   // 6:00 AM = 360 minutes
+  const extendedClose = 20 * 60; // 8:00 PM = 1200 minutes
 
-  return etTimeInMinutes >= marketOpen && etTimeInMinutes <= marketClose;
+  return etTimeInMinutes >= extendedOpen && etTimeInMinutes <= extendedClose;
 }
 
 export default function ScraperPage() {
@@ -302,45 +303,12 @@ export default function ScraperPage() {
       if (scraperRef.current.shouldStop) break;
 
       try {
-        // Fetch news from both Yahoo Finance and Google News
-        const [yahooResponse, googleResponse] = await Promise.all([
-          fetch(`/api/yahoo-news?symbol=${stock.symbol}`),
-          fetch(`/api/google-news?symbol=${stock.symbol}&days=${daysToScrape}`),
-        ]);
+        // Fetch news from Yahoo Finance
+        const response = await fetch(`/api/yahoo-news?symbol=${stock.symbol}`);
+        const data = await response.json();
 
-        const yahooData = await yahooResponse.json();
-        const googleData = await googleResponse.json();
-
-        // Combine articles from both sources, removing duplicates by title similarity
-        const allArticles: YahooNewsItem[] = [];
-        const seenTitles = new Set<string>();
-
-        // Add Yahoo articles first
-        if (yahooData.articles && Array.isArray(yahooData.articles)) {
-          for (const article of yahooData.articles) {
-            const normalizedTitle = article.title.toLowerCase().substring(0, 50);
-            if (!seenTitles.has(normalizedTitle)) {
-              seenTitles.add(normalizedTitle);
-              allArticles.push(article);
-            }
-          }
-        }
-
-        // Add Google articles (avoiding duplicates)
-        if (googleData.articles && Array.isArray(googleData.articles)) {
-          for (const article of googleData.articles) {
-            const normalizedTitle = article.title.toLowerCase().substring(0, 50);
-            if (!seenTitles.has(normalizedTitle)) {
-              seenTitles.add(normalizedTitle);
-              allArticles.push(article);
-            }
-          }
-        }
-
-        // Sort by date (newest first)
-        allArticles.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
-
-        for (const article of allArticles) {
+        if (data.articles && Array.isArray(data.articles)) {
+          for (const article of data.articles as YahooNewsItem[]) {
             if (scraperRef.current.shouldStop) break;
 
             // Wait while paused
@@ -457,6 +425,7 @@ export default function ScraperPage() {
               ...prev,
               totalArticlesScanned: articlesScanned,
             }));
+          }
         }
       } catch (error) {
         console.error(`Error fetching news for ${stock.symbol}:`, error);
