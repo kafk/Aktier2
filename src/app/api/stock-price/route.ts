@@ -6,6 +6,24 @@ const POLYGON_API_KEY = process.env.POLYGON_API_KEY || process.env.MASSIVE_API_K
 // Debug: log if API key is configured
 console.log(`Polygon API key configured: ${POLYGON_API_KEY ? 'YES (length: ' + POLYGON_API_KEY.length + ')' : 'NO'}`);
 
+// Cache for Polygon data to avoid rate limiting (5 calls/min on free tier)
+// Key: "SYMBOL-YYYY-MM-DD", Value: { bars: [], fetchedAt: timestamp }
+interface PolygonBar {
+  t: number; // timestamp in ms
+  c: number; // close price
+}
+interface CacheEntry {
+  bars: PolygonBar[];
+  dailyClose: number | null;
+  fetchedAt: number;
+}
+const polygonCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
+
+// Rate limiting for Polygon API
+let lastPolygonCall = 0;
+const POLYGON_RATE_LIMIT_MS = 250; // Max 4 calls per second to stay safe
+
 interface PriceResponse {
   symbol: string;
   price: number | null;
@@ -54,7 +72,7 @@ async function fetchPolygonPrice(symbol: string): Promise<number | null> {
   }
 }
 
-// Fetch historical price from Polygon/Massive at specific time
+// Fetch historical price from Polygon/Massive at specific time (with caching)
 async function fetchPolygonHistoricalPrice(
   symbol: string,
   targetTime: Date
@@ -67,11 +85,42 @@ async function fetchPolygonHistoricalPrice(
   try {
     // Format dates for Polygon API (YYYY-MM-DD)
     const targetDate = targetTime.toISOString().split("T")[0];
-    const nextDate = new Date(targetTime.getTime() + 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0];
+    const cacheKey = `${symbol}-${targetDate}`;
 
-    console.log(`Polygon: Fetching ${symbol} for date ${targetDate}, target time: ${targetTime.toISOString()}`);
+    // Check cache first
+    const cached = polygonCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL) {
+      // Use cached data
+      if (cached.bars.length > 0) {
+        const targetTimestamp = targetTime.getTime();
+        let closestBar = cached.bars[0];
+        let closestDiff = Math.abs(cached.bars[0].t - targetTimestamp);
+
+        for (const bar of cached.bars) {
+          const diff = Math.abs(bar.t - targetTimestamp);
+          if (diff < closestDiff) {
+            closestDiff = diff;
+            closestBar = bar;
+          }
+        }
+        console.log(`Polygon (cached): price ${closestBar.c} for ${symbol}`);
+        return closestBar.c;
+      } else if (cached.dailyClose !== null) {
+        console.log(`Polygon (cached daily): price ${cached.dailyClose} for ${symbol}`);
+        return cached.dailyClose;
+      }
+      return null;
+    }
+
+    // Rate limiting - wait if needed
+    const now = Date.now();
+    const timeSinceLastCall = now - lastPolygonCall;
+    if (timeSinceLastCall < POLYGON_RATE_LIMIT_MS) {
+      await new Promise(resolve => setTimeout(resolve, POLYGON_RATE_LIMIT_MS - timeSinceLastCall));
+    }
+    lastPolygonCall = Date.now();
+
+    console.log(`Polygon: Fetching ${symbol} for date ${targetDate}`);
 
     // Fetch 5-minute bars for the target day
     const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/5/minute/${targetDate}/${targetDate}?adjusted=true&sort=asc&apiKey=${POLYGON_API_KEY}`;
@@ -88,21 +137,49 @@ async function fetchPolygonHistoricalPrice(
     }
 
     const data = await response.json();
-    console.log(`Polygon response for ${symbol}: status=${data.status}, resultsCount=${data.resultsCount}, results=${data.results?.length || 0}`);
+    console.log(`Polygon response for ${symbol}: status=${data.status}, resultsCount=${data.resultsCount}`);
 
     if (!data.results || data.results.length === 0) {
       console.log(`Polygon: No 5-min data for ${symbol} on ${targetDate}, trying daily...`);
-      // Try daily bar as fallback
+
+      // Rate limit for daily call too
+      await new Promise(resolve => setTimeout(resolve, POLYGON_RATE_LIMIT_MS));
+      lastPolygonCall = Date.now();
+
+      const nextDate = new Date(targetTime.getTime() + 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
       const dailyUrl = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${targetDate}/${nextDate}?adjusted=true&apiKey=${POLYGON_API_KEY}`;
       const dailyResponse = await fetch(dailyUrl);
       const dailyData = await dailyResponse.json();
 
       if (dailyData.results && dailyData.results.length > 0) {
-        console.log(`Polygon: using daily close for ${symbol} on ${targetDate}`);
-        return dailyData.results[0].c;
+        const dailyClose = dailyData.results[0].c;
+        // Cache the daily result
+        polygonCache.set(cacheKey, {
+          bars: [],
+          dailyClose,
+          fetchedAt: Date.now(),
+        });
+        console.log(`Polygon: using daily close ${dailyClose} for ${symbol}`);
+        return dailyClose;
       }
+
+      // Cache empty result to avoid repeated calls
+      polygonCache.set(cacheKey, {
+        bars: [],
+        dailyClose: null,
+        fetchedAt: Date.now(),
+      });
       return null;
     }
+
+    // Cache the 5-minute bars
+    polygonCache.set(cacheKey, {
+      bars: data.results,
+      dailyClose: null,
+      fetchedAt: Date.now(),
+    });
 
     // Find the bar closest to target time
     const targetTimestamp = targetTime.getTime();
@@ -117,8 +194,8 @@ async function fetchPolygonHistoricalPrice(
       }
     }
 
-    console.log(`Polygon: found price ${closestBar.c} for ${symbol} at ${new Date(closestBar.t).toISOString()}`);
-    return closestBar.c; // close price of the bar
+    console.log(`Polygon: found price ${closestBar.c} for ${symbol}`);
+    return closestBar.c;
   } catch (error) {
     console.error(`Error fetching Polygon historical for ${symbol}:`, error);
     return null;
