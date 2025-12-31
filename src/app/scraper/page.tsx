@@ -439,12 +439,28 @@ export default function ScraperPage() {
       try {
         setScraperState((prev) => ({ ...prev, progress: 5 }));
 
+        console.log("Fetching Placera news...");
         const response = await fetch(`/api/placera-news?tab=all&limit=300`);
         const data = await response.json();
+
+        console.log("Placera response:", {
+          ok: response.ok,
+          status: response.status,
+          articlesCount: data.articles?.length || 0,
+          debug: data.debug
+        });
+
+        if (data.error) {
+          console.error("Placera API error:", data.error);
+        }
 
         if (data.articles && Array.isArray(data.articles)) {
           const placeraArticles = data.articles as PlaceraNewsItem[];
           const totalPlacera = placeraArticles.length;
+
+          if (totalPlacera === 0) {
+            console.warn("Placera returned 0 articles. Debug info:", data.debug);
+          }
 
           for (let i = 0; i < placeraArticles.length; i++) {
             if (scraperRef.current.shouldStop) break;
