@@ -284,7 +284,7 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                         {/* Meta info */}
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs text-muted-foreground">
-                            {article.source} • {formatDate(article.publishedAt)}
+                            {formatDate(article.publishedAt)}
                             {article.priceAtEvent && (
                               <span className="ml-1 font-mono">
                                 @ ${article.priceAtEvent.toFixed(2)}
@@ -311,6 +311,18 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                               </Badge>
                             )}
                           </div>
+                        </div>
+                        {/* Source URL */}
+                        <div className="mt-1">
+                          <a
+                            href={article.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate block max-w-full"
+                            title={article.url}
+                          >
+                            {article.source}: {article.url}
+                          </a>
                         </div>
                       </div>
 
