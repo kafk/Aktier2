@@ -32,6 +32,18 @@ interface YahooNewsItem {
   source: string;
 }
 
+interface PlaceraNewsItem {
+  title: string;
+  link: string;
+  pubDate: string;
+  description: string;
+  source: string;
+  category: string;
+  ticker?: string;
+}
+
+type NewsSource = "yahoo" | "placera" | "both";
+
 // Fetch historical stock price at a specific time
 async function fetchHistoricalPrice(symbol: string, timestamp: string): Promise<{ price: number | null; source: string }> {
   try {
@@ -227,6 +239,7 @@ export default function ScraperPage() {
   const [daysToScrape, setDaysToScrape] = useState(7);
   const [notificationLimit, setNotificationLimit] = useState(10);
   const [hasInitializedKeywords, setHasInitializedKeywords] = useState(false);
+  const [newsSource, setNewsSource] = useLocalStorage<NewsSource>("scraper-news-source", "placera");
 
   // Initialize keywords from all active classifications on first load
   useEffect(() => {
@@ -271,6 +284,113 @@ export default function ScraperPage() {
     currentLimit: 10,
   });
 
+  // Process a single article (common logic for both sources)
+  const processArticle = async (
+    article: { title: string; link: string; pubDate: string; description: string; source: string },
+    stockSymbol: string,
+    articlesScanned: number,
+    notificationCount: number,
+    setArticlesScanned: (n: number) => void,
+    setNotificationCount: (n: number) => void
+  ): Promise<{ matched: boolean; newNotificationCount: number }> => {
+    // Check if within date range (excludes last 2 days)
+    if (!isWithinDays(article.pubDate, daysToScrape)) {
+      return { matched: false, newNotificationCount: notificationCount };
+    }
+
+    // Check if published during market hours (skip for Placera - Swedish market)
+    if (newsSource !== "placera" && !isDuringMarketHours(article.pubDate)) {
+      return { matched: false, newNotificationCount: notificationCount };
+    }
+
+    // Check if matches keywords
+    const textToSearch = `${article.title} ${article.description}`;
+    const matchedKws = matchesKeywords(textToSearch, selectedKeywords);
+
+    if (matchedKws.length === 0) {
+      return { matched: false, newNotificationCount: notificationCount };
+    }
+
+    // Analyze sentiment and impact
+    const analysis = analyzeSentiment(textToSearch, classifications, scoringConfig);
+
+    // Fetch historical prices for stock and SPY at event, +1h, +1d
+    const [stockPrices, spyPrices] = await Promise.all([
+      fetchAllPrices(stockSymbol, article.pubDate),
+      fetchAllPrices("SPY", article.pubDate),
+    ]);
+
+    // Calculate full price movement metrics
+    const priceMovement = stockPrices.priceAtEvent && spyPrices.priceAtEvent
+      ? calculatePriceMovement(
+          stockPrices.priceAtEvent,
+          stockPrices.price1h,
+          stockPrices.price1d,
+          spyPrices.priceAtEvent,
+          spyPrices.price1h,
+          spyPrices.price1d,
+          DEFAULT_BASELINE.baseline1h,
+          DEFAULT_BASELINE.baseline1d
+        )
+      : null;
+
+    // Determine tracking status based on available data
+    let priceTrackingStatus: "pending" | "1h_complete" | "1d_complete" = "pending";
+    if (stockPrices.price1d !== null) {
+      priceTrackingStatus = "1d_complete";
+    } else if (stockPrices.price1h !== null) {
+      priceTrackingStatus = "1h_complete";
+    }
+
+    const newsArticle: NewsArticle = {
+      id: `${stockSymbol}-${Date.now()}-${Math.random()}`,
+      title: article.title,
+      source: article.source,
+      url: article.link,
+      publishedAt: article.pubDate,
+      summary: article.description,
+      matchedStock: stockSymbol,
+      matchedKeywords: Array.from(new Set([...matchedKws, ...analysis.matchedKeywords])),
+      sentiment: analysis.sentiment,
+      impactScore: analysis.impactScore,
+      eventType: analysis.eventType,
+      eventCode: analysis.eventCode,
+      priceAtEvent: stockPrices.priceAtEvent || undefined,
+      price1h: stockPrices.price1h,
+      price1d: stockPrices.price1d,
+      indexPriceAtEvent: spyPrices.priceAtEvent || undefined,
+      indexPrice1h: spyPrices.price1h,
+      indexPrice1d: spyPrices.price1d,
+      stockAbsMove1h: priceMovement?.stockAbsMove1h,
+      stockAbsMove1d: priceMovement?.stockAbsMove1d,
+      newsMove1h: priceMovement?.newsMove1h,
+      newsMove1d: priceMovement?.newsMove1d,
+      newsImpact1h: priceMovement?.newsImpact1h,
+      newsImpact1d: priceMovement?.newsImpact1d,
+      baseline1h: DEFAULT_BASELINE.baseline1h,
+      baseline1d: DEFAULT_BASELINE.baseline1d,
+      priceTrackingStatus,
+      priceSource: stockPrices.source as "polygon" | "yahoo" | "google" | "none",
+    };
+
+    const newCount = notificationCount + 1;
+
+    setScraperState((prev) => ({
+      ...prev,
+      matchedArticles: [newsArticle, ...prev.matchedArticles],
+      notificationCount: newCount,
+      totalArticlesScanned: articlesScanned,
+    }));
+
+    // Check notification limit
+    if (newCount >= scraperRef.current.currentLimit) {
+      scraperRef.current.shouldPause = true;
+      setScraperState((prev) => ({ ...prev, isPaused: true }));
+    }
+
+    return { matched: true, newNotificationCount: newCount };
+  };
+
   const runScraper = useCallback(async () => {
     scraperRef.current.shouldStop = false;
     scraperRef.current.shouldPause = false;
@@ -285,161 +405,162 @@ export default function ScraperPage() {
       notificationCount: 0,
     });
 
-    const totalStocks = selectedStocks.length;
     let articlesScanned = 0;
     let notificationCount = 0;
 
-    for (let i = 0; i < selectedStocks.length; i++) {
-      const stock = selectedStocks[i];
+    // Helper to update counters
+    const setArticlesScanned = (n: number) => { articlesScanned = n; };
+    const setNotificationCount = (n: number) => { notificationCount = n; };
 
-      if (scraperRef.current.shouldStop) break;
-
-      // Wait while paused
-      while (scraperRef.current.shouldPause && !scraperRef.current.shouldStop) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-
-      if (scraperRef.current.shouldStop) break;
-
+    // Fetch from Placera if selected
+    if (newsSource === "placera" || newsSource === "both") {
       try {
-        // Fetch news from Yahoo Finance
-        const response = await fetch(`/api/yahoo-news?symbol=${stock.symbol}`);
+        setScraperState((prev) => ({ ...prev, progress: 5 }));
+
+        const response = await fetch(`/api/placera-news?tab=all&limit=100`);
         const data = await response.json();
 
         if (data.articles && Array.isArray(data.articles)) {
-          for (const article of data.articles as YahooNewsItem[]) {
+          const placeraArticles = data.articles as PlaceraNewsItem[];
+          const totalPlacera = placeraArticles.length;
+
+          for (let i = 0; i < placeraArticles.length; i++) {
             if (scraperRef.current.shouldStop) break;
 
-            // Wait while paused
             while (scraperRef.current.shouldPause && !scraperRef.current.shouldStop) {
               await new Promise((resolve) => setTimeout(resolve, 100));
             }
 
+            const article = placeraArticles[i];
             articlesScanned++;
 
-            // Check if within date range (excludes last 2 days)
-            if (!isWithinDays(article.pubDate, daysToScrape)) {
-              continue;
-            }
+            // Try to match with selected stocks or use ticker from article
+            let matchedStock = article.ticker;
 
-            // Check if published during US market hours (9:30 AM - 4:00 PM ET)
-            if (!isDuringMarketHours(article.pubDate)) {
-              continue;
-            }
-
-            // Check if matches keywords
-            const textToSearch = `${article.title} ${article.description}`;
-            const matchedKws = matchesKeywords(textToSearch, selectedKeywords);
-
-            if (matchedKws.length > 0) {
-              // Analyze sentiment and impact
-              const analysis = analyzeSentiment(
-                textToSearch,
-                classifications,
-                scoringConfig
+            // If article has a ticker, check if it's in our selected stocks
+            if (matchedStock) {
+              const stockMatch = selectedStocks.find(s =>
+                s.symbol.toUpperCase() === matchedStock?.toUpperCase() ||
+                s.symbol.toUpperCase() === matchedStock?.replace(".ST", "").toUpperCase()
               );
-
-              // Fetch historical prices for stock and SPY at event, +1h, +1d
-              const [stockPrices, spyPrices] = await Promise.all([
-                fetchAllPrices(stock.symbol, article.pubDate),
-                fetchAllPrices("SPY", article.pubDate),
-              ]);
-
-              // Calculate full price movement metrics
-              const priceMovement = stockPrices.priceAtEvent && spyPrices.priceAtEvent
-                ? calculatePriceMovement(
-                    stockPrices.priceAtEvent,
-                    stockPrices.price1h,
-                    stockPrices.price1d,
-                    spyPrices.priceAtEvent,
-                    spyPrices.price1h,
-                    spyPrices.price1d,
-                    DEFAULT_BASELINE.baseline1h,
-                    DEFAULT_BASELINE.baseline1d
-                  )
-                : null;
-
-              // Determine tracking status based on available data
-              let priceTrackingStatus: "pending" | "1h_complete" | "1d_complete" = "pending";
-              if (stockPrices.price1d !== null) {
-                priceTrackingStatus = "1d_complete";
-              } else if (stockPrices.price1h !== null) {
-                priceTrackingStatus = "1h_complete";
-              }
-
-              const newsArticle: NewsArticle = {
-                id: `${stock.symbol}-${Date.now()}-${Math.random()}`,
-                title: article.title,
-                source: article.source || "Yahoo Finance",
-                url: article.link,
-                publishedAt: article.pubDate,
-                summary: article.description,
-                matchedStock: stock.symbol,
-                matchedKeywords: Array.from(new Set([...matchedKws, ...analysis.matchedKeywords])),
-                sentiment: analysis.sentiment,
-                impactScore: analysis.impactScore,
-                eventType: analysis.eventType,
-                eventCode: analysis.eventCode,
-                // Price tracking data
-                priceAtEvent: stockPrices.priceAtEvent || undefined,
-                price1h: stockPrices.price1h,
-                price1d: stockPrices.price1d,
-                indexPriceAtEvent: spyPrices.priceAtEvent || undefined,
-                indexPrice1h: spyPrices.price1h,
-                indexPrice1d: spyPrices.price1d,
-                // Calculated metrics from priceMovement
-                stockAbsMove1h: priceMovement?.stockAbsMove1h,
-                stockAbsMove1d: priceMovement?.stockAbsMove1d,
-                newsMove1h: priceMovement?.newsMove1h,
-                newsMove1d: priceMovement?.newsMove1d,
-                newsImpact1h: priceMovement?.newsImpact1h,
-                newsImpact1d: priceMovement?.newsImpact1d,
-                baseline1h: DEFAULT_BASELINE.baseline1h,
-                baseline1d: DEFAULT_BASELINE.baseline1d,
-                priceTrackingStatus,
-                priceSource: stockPrices.source as "polygon" | "yahoo" | "google" | "none",
-              };
-
-              notificationCount++;
-
-              setScraperState((prev) => ({
-                ...prev,
-                matchedArticles: [newsArticle, ...prev.matchedArticles],
-                notificationCount,
-                totalArticlesScanned: articlesScanned,
-              }));
-
-              // Check notification limit
-              if (notificationCount >= scraperRef.current.currentLimit) {
-                scraperRef.current.shouldPause = true;
-                setScraperState((prev) => ({
-                  ...prev,
-                  isPaused: true,
-                }));
+              if (stockMatch) {
+                matchedStock = stockMatch.symbol;
               }
             }
 
-            // Update progress
+            // If no ticker, try to find stock mention in title/description
+            if (!matchedStock) {
+              for (const stock of selectedStocks) {
+                if (
+                  article.title.toUpperCase().includes(stock.symbol) ||
+                  article.title.toUpperCase().includes(stock.name?.toUpperCase() || "") ||
+                  article.description.toUpperCase().includes(stock.symbol)
+                ) {
+                  matchedStock = stock.symbol;
+                  break;
+                }
+              }
+            }
+
+            // Default to first selected stock if none matched (for keyword-only matching)
+            if (!matchedStock && selectedStocks.length > 0) {
+              matchedStock = selectedStocks[0].symbol;
+            }
+
+            if (matchedStock) {
+              const result = await processArticle(
+                article,
+                matchedStock,
+                articlesScanned,
+                notificationCount,
+                setArticlesScanned,
+                setNotificationCount
+              );
+              if (result.matched) {
+                notificationCount = result.newNotificationCount;
+              }
+            }
+
+            // Update progress for Placera portion
+            const placeraProgress = newsSource === "placera"
+              ? ((i + 1) / totalPlacera) * 100
+              : ((i + 1) / totalPlacera) * 50;
+
             setScraperState((prev) => ({
               ...prev,
+              progress: placeraProgress,
               totalArticlesScanned: articlesScanned,
             }));
           }
         }
       } catch (error) {
-        console.error(`Error fetching news for ${stock.symbol}:`, error);
+        console.error("Error fetching Placera news:", error);
       }
+    }
 
-      // Update progress
-      const progress = ((i + 1) / totalStocks) * 100;
-      setScraperState((prev) => ({
-        ...prev,
-        progress,
-      }));
+    // Fetch from Yahoo if selected
+    if (newsSource === "yahoo" || newsSource === "both") {
+      const totalStocks = selectedStocks.length;
+      const baseProgress = newsSource === "both" ? 50 : 0;
 
-      // Small delay between stocks to avoid rate limiting
-      if (i < selectedStocks.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      for (let i = 0; i < selectedStocks.length; i++) {
+        const stock = selectedStocks[i];
+
+        if (scraperRef.current.shouldStop) break;
+
+        while (scraperRef.current.shouldPause && !scraperRef.current.shouldStop) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        if (scraperRef.current.shouldStop) break;
+
+        try {
+          const response = await fetch(`/api/yahoo-news?symbol=${stock.symbol}`);
+          const data = await response.json();
+
+          if (data.articles && Array.isArray(data.articles)) {
+            for (const article of data.articles as YahooNewsItem[]) {
+              if (scraperRef.current.shouldStop) break;
+
+              while (scraperRef.current.shouldPause && !scraperRef.current.shouldStop) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+              }
+
+              articlesScanned++;
+
+              const result = await processArticle(
+                { ...article, source: article.source || "Yahoo Finance" },
+                stock.symbol,
+                articlesScanned,
+                notificationCount,
+                setArticlesScanned,
+                setNotificationCount
+              );
+              if (result.matched) {
+                notificationCount = result.newNotificationCount;
+              }
+
+              setScraperState((prev) => ({
+                ...prev,
+                totalArticlesScanned: articlesScanned,
+              }));
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching news for ${stock.symbol}:`, error);
+        }
+
+        // Update progress
+        const yahooProgress = baseProgress + ((i + 1) / totalStocks) * (newsSource === "both" ? 50 : 100);
+        setScraperState((prev) => ({
+          ...prev,
+          progress: yahooProgress,
+        }));
+
+        // Small delay between stocks
+        if (i < selectedStocks.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
       }
     }
 
@@ -450,7 +571,7 @@ export default function ScraperPage() {
         progress: 100,
       }));
     }
-  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit, classifications, scoringConfig]);
+  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit, classifications, scoringConfig, newsSource]);
 
   const handleStart = () => {
     runScraper();
@@ -494,7 +615,11 @@ export default function ScraperPage() {
     <main className="min-h-screen bg-background">
       <Header
         title="News Scraper"
-        subtitle="Monitor stocks for keyword-matching news from Yahoo Finance"
+        subtitle={`Monitor stocks for keyword-matching news from ${
+          newsSource === "placera" ? "Placera.se" :
+          newsSource === "yahoo" ? "Yahoo Finance" :
+          "Placera.se & Yahoo Finance"
+        }`}
         backHref="/"
       >
         <Link href="/backtesting">
@@ -529,6 +654,8 @@ export default function ScraperPage() {
               onDaysChange={setDaysToScrape}
               notificationLimit={notificationLimit}
               onNotificationLimitChange={setNotificationLimit}
+              newsSource={newsSource}
+              onNewsSourceChange={setNewsSource}
               scraperState={scraperState}
               onStart={handleStart}
               onPause={handlePause}
