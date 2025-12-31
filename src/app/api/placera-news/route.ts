@@ -15,6 +15,11 @@ interface NewsResponse {
   articles: PlaceraNewsItem[];
   totalFetched: number;
   error?: string;
+  debug?: {
+    htmlLength?: number;
+    fetchStatus?: string;
+    selectorsChecked?: number;
+  };
 }
 
 // Rate limiting - be polite to Placera's servers
@@ -25,12 +30,18 @@ const MIN_FETCH_INTERVAL_MS = 2000; // 2 seconds between requests
 const cache = new Map<string, { data: PlaceraNewsItem[]; timestamp: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
 
-async function fetchPlaceraPage(tab: string, limit: number): Promise<PlaceraNewsItem[]> {
+interface FetchResult {
+  articles: PlaceraNewsItem[];
+  htmlLength: number;
+  fetchStatus: string;
+}
+
+async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return cached.data;
+    return { articles: cached.data, htmlLength: 0, fetchStatus: "cached" };
   }
 
   // Rate limiting
@@ -44,6 +55,7 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<PlaceraNews
   const url = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
 
   try {
+    console.log(`Fetching Placera: ${url}`);
     const response = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -54,19 +66,22 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<PlaceraNews
 
     if (!response.ok) {
       console.error(`Placera fetch failed: ${response.status} ${response.statusText}`);
-      return [];
+      return { articles: [], htmlLength: 0, fetchStatus: `HTTP ${response.status}` };
     }
 
     const html = await response.text();
+    console.log(`Placera HTML received: ${html.length} bytes`);
+
     const articles = parseHtml(html, tab);
+    console.log(`Placera parsed: ${articles.length} articles`);
 
     // Update cache
     cache.set(cacheKey, { data: articles, timestamp: Date.now() });
 
-    return articles;
+    return { articles, htmlLength: html.length, fetchStatus: "ok" };
   } catch (error) {
     console.error(`Error fetching Placera ${tab}:`, error);
-    return [];
+    return { articles: [], htmlLength: 0, fetchStatus: `error: ${error}` };
   }
 }
 
@@ -244,6 +259,8 @@ export async function GET(request: NextRequest) {
 
   try {
     let allArticles: PlaceraNewsItem[] = [];
+    let totalHtmlLength = 0;
+    const fetchStatuses: string[] = [];
 
     if (tab === "all") {
       // Fetch from all three sources
@@ -252,9 +269,14 @@ export async function GET(request: NextRequest) {
         fetchPlaceraPage("extern-analys", limit),
         fetchPlaceraPage("pressmeddelande", limit),
       ]);
-      allArticles = [...telegram, ...analys, ...press];
+      allArticles = [...telegram.articles, ...analys.articles, ...press.articles];
+      totalHtmlLength = telegram.htmlLength + analys.htmlLength + press.htmlLength;
+      fetchStatuses.push(`telegram:${telegram.fetchStatus}`, `analys:${analys.fetchStatus}`, `press:${press.fetchStatus}`);
     } else {
-      allArticles = await fetchPlaceraPage(tab, limit);
+      const result = await fetchPlaceraPage(tab, limit);
+      allArticles = result.articles;
+      totalHtmlLength = result.htmlLength;
+      fetchStatuses.push(`${tab}:${result.fetchStatus}`);
     }
 
     // Sort by date (newest first)
@@ -276,6 +298,10 @@ export async function GET(request: NextRequest) {
     const result: NewsResponse = {
       articles: uniqueArticles,
       totalFetched: uniqueArticles.length,
+      debug: {
+        htmlLength: totalHtmlLength,
+        fetchStatus: fetchStatuses.join(", "),
+      },
     };
 
     return NextResponse.json(result);
@@ -285,7 +311,10 @@ export async function GET(request: NextRequest) {
       {
         articles: [],
         totalFetched: 0,
-        error: "Failed to fetch Placera news",
+        error: `Failed to fetch Placera news: ${error}`,
+        debug: {
+          fetchStatus: "exception",
+        },
       },
       { status: 500 }
     );
