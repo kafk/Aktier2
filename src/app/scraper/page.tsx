@@ -175,8 +175,7 @@ function isWithinDays(pubDate: string, days: number): boolean {
   return articleDate >= oldCutoff;
 }
 
-// Check if article was published during extended trading hours (6 AM - 8 PM ET)
-// Includes pre-market (6-9:30 AM), regular (9:30 AM-4 PM), and after-hours (4-8 PM)
+// Check if article was published during US market hours (9:30 AM - 4:00 PM ET)
 function isDuringMarketHours(pubDate: string): boolean {
   const articleDate = new Date(pubDate);
 
@@ -200,11 +199,11 @@ function isDuringMarketHours(pubDate: string): boolean {
 
   const etTimeInMinutes = etHours * 60 + utcMinutes;
 
-  // Extended trading hours: 6:00 AM to 8:00 PM ET
-  const extendedOpen = 6 * 60;   // 6:00 AM = 360 minutes
-  const extendedClose = 20 * 60; // 8:00 PM = 1200 minutes
+  // Regular market hours: 9:30 AM to 4:00 PM ET
+  const marketOpen = 9 * 60 + 30;  // 9:30 AM = 570 minutes
+  const marketClose = 16 * 60;      // 4:00 PM = 960 minutes
 
-  return etTimeInMinutes >= extendedOpen && etTimeInMinutes <= extendedClose;
+  return etTimeInMinutes >= marketOpen && etTimeInMinutes <= marketClose;
 }
 
 export default function ScraperPage() {
