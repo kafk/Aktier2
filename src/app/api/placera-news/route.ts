@@ -42,8 +42,8 @@ interface FetchResult {
 async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
-  // Request a large limit directly - Placera's "ladda mer" just increases the limit parameter
-  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}`;
+  // Use _rsc parameter like Placera's frontend does for React Server Components
+  const sourceUrl = `https://www.placera.se/telegram?tab=${tab}&limit=${limit}&_rsc=1`;
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return { articles: cached.data, htmlLength: 0, fetchStatus: "cached", sourceUrl };
@@ -65,6 +65,7 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
         "Cache-Control": "no-cache",
+        "RSC": "1",
       },
     });
 
