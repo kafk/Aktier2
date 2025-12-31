@@ -20,9 +20,9 @@ interface CacheEntry {
 const polygonCache = new Map<string, CacheEntry>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
-// Rate limiting for Polygon API
+// Rate limiting for Polygon API (5 calls/minute = 1 call per 12 seconds)
 let lastPolygonCall = 0;
-const POLYGON_RATE_LIMIT_MS = 250; // Max 4 calls per second to stay safe
+const POLYGON_RATE_LIMIT_MS = 12500; // 12.5 seconds between calls to stay under 5/min
 
 interface PriceResponse {
   symbol: string;
