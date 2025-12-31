@@ -168,20 +168,11 @@ function matchesKeywords(
   return matched;
 }
 
-// Check if article is within date range (excluding last 2 days for price data availability)
+// Check if article is within date range (includes all days, no exclusion)
 function isWithinDays(pubDate: string, days: number): boolean {
   const articleDate = new Date(pubDate);
 
-  // Exclude last 2 days (today and yesterday) - prices need time to settle
-  const recentCutoff = new Date();
-  recentCutoff.setDate(recentCutoff.getDate() - 2);
-  recentCutoff.setHours(0, 0, 0, 0);
-
-  if (articleDate >= recentCutoff) {
-    return false; // Too recent, skip
-  }
-
-  // Check if within the specified days range
+  // Check if within the specified days range (includes today)
   const oldCutoff = new Date();
   oldCutoff.setDate(oldCutoff.getDate() - days);
   return articleDate >= oldCutoff;
