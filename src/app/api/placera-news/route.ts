@@ -38,6 +38,36 @@ interface FetchResult {
   sourceUrl: string;
 }
 
+// Extract date from text using various patterns
+function extractDateFromText(text: string): string | null {
+  // Pattern 1: Swedish format "31 dec 14:30" or "31 december 14:30"
+  const swedishMatch = text.match(/(\d{1,2})\s+(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)\w*\s+(\d{2}):(\d{2})/i);
+  if (swedishMatch) {
+    return swedishMatch[0];
+  }
+
+  // Pattern 2: ISO format "2025-12-31T14:30:00"
+  const isoMatch = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/);
+  if (isoMatch) {
+    return isoMatch[0];
+  }
+
+  // Pattern 3: Date format "2025-12-31 14:30"
+  const dateTimeMatch = text.match(/\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/);
+  if (dateTimeMatch) {
+    return dateTimeMatch[0];
+  }
+
+  // Pattern 4: Just time "14:30" (today's articles) - look for time in context
+  const timeOnlyMatch = text.match(/["\s](\d{2}):(\d{2})["\s,]/);
+  if (timeOnlyMatch) {
+    // Return the time, parseSwedishDate will handle adding today's date
+    return `${timeOnlyMatch[1]}:${timeOnlyMatch[2]}`;
+  }
+
+  return null;
+}
+
 // Parse RSC (React Server Components) response format to extract articles
 function parseRscResponse(rscData: string, category: string, sourceUrl: string): PlaceraNewsItem[] {
   const articles: PlaceraNewsItem[] = [];
@@ -64,9 +94,9 @@ function parseRscResponse(rscData: string, category: string, sourceUrl: string):
 
   // For each link, look for nearby title and date
   for (const { link, pos } of linkPositions) {
-    // Look in a window around the link position for title and date
-    const windowStart = Math.max(0, pos - 500);
-    const windowEnd = Math.min(rscData.length, pos + 500);
+    // Look in a larger window around the link position for title and date
+    const windowStart = Math.max(0, pos - 800);
+    const windowEnd = Math.min(rscData.length, pos + 800);
     const window = rscData.substring(windowStart, windowEnd);
 
     // Find potential title - look for quoted strings that look like headlines
@@ -94,11 +124,9 @@ function parseRscResponse(rscData: string, category: string, sourceUrl: string):
       }
     }
 
-    // Find date/time - look for Swedish format "31 dec 14:30" or ISO format
-    const dateMatch = window.match(/(\d{1,2})\s+(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)\w*\s+(\d{2}):(\d{2})/i) ||
-                      window.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/);
-
-    const pubDate = dateMatch ? parseSwedishDate(dateMatch[0]) : new Date().toISOString();
+    // Find date/time using our extraction function
+    const dateStr = extractDateFromText(window);
+    const pubDate = dateStr ? parseSwedishDate(dateStr) : new Date().toISOString();
 
     if (bestTitle) {
       articles.push({
@@ -299,16 +327,28 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
         }
 
         // Extract date - try multiple patterns
-        let pubDate =
+        let pubDateRaw =
           $item.find("time").attr("datetime") ||
           $item.find("time").text().trim() ||
-          $item.find(".date, .time, .timestamp, [class*='date']").first().text().trim() ||
+          $item.find(".date, .time, .timestamp, [class*='date'], [class*='time']").first().text().trim() ||
+          $item.find("span").filter((_, el) => /\d{1,2}:\d{2}/.test($(el).text())).first().text().trim() ||
           $item.find("td:nth-child(1)").text().trim() || // Often date is first column
           "";
 
-        // Parse Swedish date formats (e.g., "2025-12-31 14:30" or "31 dec 14:30")
-        if (pubDate && !pubDate.includes("T")) {
-          pubDate = parseSwedishDate(pubDate);
+        // Try to extract date from the raw text
+        let pubDate = "";
+        if (pubDateRaw) {
+          const extractedDate = extractDateFromText(pubDateRaw);
+          pubDate = extractedDate ? parseSwedishDate(extractedDate) : parseSwedishDate(pubDateRaw);
+        }
+
+        // If still no date, try to find it in the item's full text
+        if (!pubDate || pubDate === new Date().toISOString().split("T")[0]) {
+          const fullText = $item.text();
+          const extractedDate = extractDateFromText(fullText);
+          if (extractedDate) {
+            pubDate = parseSwedishDate(extractedDate);
+          }
         }
 
         // Extract description/summary
