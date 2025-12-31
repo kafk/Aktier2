@@ -383,6 +383,20 @@ export default function ScraperPage() {
       totalArticlesScanned: articlesScanned,
     }));
 
+    // Save to localStorage for backtesting (merge with existing, avoid duplicates)
+    try {
+      const existing = JSON.parse(localStorage.getItem("scraped-articles") || "[]");
+      const isDuplicate = existing.some((a: NewsArticle) =>
+        a.title === newsArticle.title && a.matchedStock === newsArticle.matchedStock
+      );
+      if (!isDuplicate) {
+        const updated = [newsArticle, ...existing].slice(0, 1000); // Keep max 1000
+        localStorage.setItem("scraped-articles", JSON.stringify(updated));
+      }
+    } catch (e) {
+      console.error("Failed to save article to localStorage:", e);
+    }
+
     // Check notification limit
     if (newCount >= scraperRef.current.currentLimit) {
       scraperRef.current.shouldPause = true;
