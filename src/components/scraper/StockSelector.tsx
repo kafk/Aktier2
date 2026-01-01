@@ -47,7 +47,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Common names</CardTitle>
+        <CardTitle>Select Stocks to Monitor</CardTitle>
         <CardDescription>Choose which stocks to scan for news</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -58,7 +58,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
             <div className="flex flex-wrap gap-2">
               {selectedStocks.map((stock) => (
                 <Badge key={stock.symbol} variant="default" className="gap-1 pr-1">
-                  {stock.symbol}
+                  {stock.name}
                   <button
                     onClick={() => removeStock(stock.symbol)}
                     className="ml-1 hover:bg-primary-foreground/20 rounded-full p-0.5"
@@ -107,7 +107,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                 onClick={() => addStock(stock)}
               >
                 <Plus className="h-3 w-3 mr-1" />
-                {stock.symbol}
+                {stock.name}
               </Badge>
             ))}
           </div>
