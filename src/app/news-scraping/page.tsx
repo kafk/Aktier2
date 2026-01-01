@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle } from "lucide-react";
+import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, CheckCircle, Search } from "lucide-react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
 import { Stock, ScraperKeyword } from "@/types/scraper";
@@ -286,6 +286,52 @@ export default function NewsScrapingPage() {
     };
   }, []);
 
+  // State for verification results
+  const [verifyResult, setVerifyResult] = useState<string | null>(null);
+
+  // Verify Telegram config - finds correct chat ID
+  const verifyTelegram = async () => {
+    if (!telegramConfig.botToken) {
+      setErrorMessage("Please enter Bot Token first");
+      return;
+    }
+
+    setVerifyResult(null);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/telegram-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          botToken: telegramConfig.botToken,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(`Verify error: ${data.error}`);
+        return;
+      }
+
+      if (data.chats && data.chats.length > 0) {
+        const chatInfo = data.chats.map((c: { chatId: number; username?: string; firstName?: string }) =>
+          `Chat ID: ${c.chatId} (${c.username || c.firstName || 'Unknown'})`
+        ).join('\n');
+
+        // Auto-fill the first chat ID found
+        const firstChatId = data.chats[0].chatId.toString();
+        setTelegramConfig(prev => ({ ...prev, chatId: firstChatId }));
+        setVerifyResult(`Found ${data.chats.length} chat(s):\n${chatInfo}\n\nChat ID auto-filled: ${firstChatId}`);
+      } else {
+        setVerifyResult("No chats found. Please:\n1. Open Telegram\n2. Find @Gotainnovation_bot\n3. Send /start\n4. Click Verify again");
+      }
+    } catch (error) {
+      setErrorMessage(`Failed to verify: ${error}`);
+    }
+  };
+
   // Test Telegram connection
   const testTelegram = async () => {
     if (!telegramConfig.botToken || !telegramConfig.chatId) {
@@ -306,6 +352,7 @@ export default function NewsScrapingPage() {
 
       if (response.ok) {
         setErrorMessage(null);
+        setVerifyResult(null);
         alert("Test message sent successfully!");
       } else {
         const error = await response.json();
@@ -375,14 +422,33 @@ export default function NewsScrapingPage() {
                     disabled={isRunning}
                   />
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={testTelegram}
-                  disabled={isRunning || !telegramConfig.botToken || !telegramConfig.chatId}
-                >
-                  <Bell className="h-4 w-4 mr-2" />
-                  Test Notification
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={verifyTelegram}
+                    disabled={isRunning || !telegramConfig.botToken}
+                  >
+                    <Search className="h-4 w-4 mr-2" />
+                    Verify & Find Chat ID
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={testTelegram}
+                    disabled={isRunning || !telegramConfig.botToken || !telegramConfig.chatId}
+                  >
+                    <Bell className="h-4 w-4 mr-2" />
+                    Test Notification
+                  </Button>
+                </div>
+
+                {verifyResult && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="h-4 w-4 text-blue-500 mt-0.5" />
+                      <pre className="text-blue-700 text-sm whitespace-pre-wrap">{verifyResult}</pre>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
