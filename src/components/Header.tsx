@@ -6,7 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 // App version - increment for each update: v1.02 -> v1.03 -> v1.04
-export const APP_VERSION = "1.37";
+export const APP_VERSION = "1.38";
 
 interface HeaderProps {
   title: string;

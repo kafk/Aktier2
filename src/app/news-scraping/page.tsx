@@ -25,6 +25,7 @@ interface ScrapedArticle {
   description: string;
   source: string;
   matchedKeywords: string[];
+  matchedStocks: string[];
   notifiedAt: string;
 }
 
@@ -116,6 +117,7 @@ export default function NewsScrapingPage() {
     const safeTitle = escapeHtml(article.title);
     const message = `🔔 <b>News Alert!</b>\n\n` +
       `📰 <b>${safeTitle}</b>\n\n` +
+      `📊 Stock: ${article.matchedStocks.join(", ")}\n` +
       `🔑 Keywords: ${article.matchedKeywords.join(", ")}\n` +
       `📅 Date: ${new Date(article.pubDate).toLocaleString()}\n` +
       `🔗 ${article.link}`;
@@ -158,6 +160,50 @@ export default function NewsScrapingPage() {
     return matches;
   };
 
+  // Check if article mentions any selected stocks
+  const findMatchingStocks = (title: string, description: string): string[] => {
+    const text = `${title} ${description}`.toLowerCase();
+    const matches: string[] = [];
+
+    for (const stock of selectedStocks) {
+      // Check symbol (e.g., "AAPL", "NVDA")
+      if (text.includes(stock.symbol.toLowerCase())) {
+        matches.push(stock.symbol);
+        continue;
+      }
+
+      // Check full name (e.g., "Apple Inc.")
+      if (text.includes(stock.name.toLowerCase())) {
+        matches.push(stock.symbol);
+        continue;
+      }
+
+      // Check common short names
+      const shortNames: Record<string, string[]> = {
+        "AAPL": ["apple"],
+        "MSFT": ["microsoft"],
+        "GOOGL": ["google", "alphabet"],
+        "AMZN": ["amazon"],
+        "NVDA": ["nvidia"],
+        "META": ["meta", "facebook"],
+        "TSLA": ["tesla"],
+        "NFLX": ["netflix"],
+        "DIS": ["disney"],
+        "JPM": ["jpmorgan", "jp morgan"],
+      };
+
+      const aliases = shortNames[stock.symbol] || [];
+      for (const alias of aliases) {
+        if (text.includes(alias)) {
+          matches.push(stock.symbol);
+          break;
+        }
+      }
+    }
+
+    return [...new Set(matches)]; // Remove duplicates
+  };
+
   // Scrape news from selected source
   const scrapeNews = async () => {
     setErrorMessage(null);
@@ -177,8 +223,10 @@ export default function NewsScrapingPage() {
             if (seenTitlesRef.current.has(article.title)) continue;
 
             const matchedKeywords = findMatchingKeywords(article.title, article.description || "");
+            const matchedStocks = findMatchingStocks(article.title, article.description || "");
 
-            if (matchedKeywords.length > 0) {
+            // Only notify if BOTH a stock AND a keyword match
+            if (matchedKeywords.length > 0 && matchedStocks.length > 0) {
               const scrapedArticle: ScrapedArticle = {
                 title: article.title,
                 link: article.link,
@@ -186,6 +234,7 @@ export default function NewsScrapingPage() {
                 description: article.description || "",
                 source: "Placera",
                 matchedKeywords,
+                matchedStocks,
                 notifiedAt: new Date().toISOString(),
               };
 
@@ -215,6 +264,7 @@ export default function NewsScrapingPage() {
 
               const matchedKeywords = findMatchingKeywords(article.title, article.description || "");
 
+              // Yahoo news is already for a specific stock, so we know it matches
               if (matchedKeywords.length > 0) {
                 const scrapedArticle: ScrapedArticle = {
                   title: article.title,
@@ -223,6 +273,7 @@ export default function NewsScrapingPage() {
                   description: article.description || "",
                   source: `Yahoo Finance (${symbol})`,
                   matchedKeywords,
+                  matchedStocks: [symbol],
                   notifiedAt: new Date().toISOString(),
                 };
 
@@ -597,8 +648,13 @@ export default function NewsScrapingPage() {
                           </Badge>
                         </div>
                         <div className="flex flex-wrap gap-1">
+                          {article.matchedStocks?.map((stock, i) => (
+                            <Badge key={`stock-${i}`} className="text-xs bg-blue-100 text-blue-800">
+                              {stock}
+                            </Badge>
+                          ))}
                           {article.matchedKeywords.map((kw, i) => (
-                            <Badge key={i} variant="secondary" className="text-xs">
+                            <Badge key={`kw-${i}`} variant="secondary" className="text-xs">
                               {kw}
                             </Badge>
                           ))}
