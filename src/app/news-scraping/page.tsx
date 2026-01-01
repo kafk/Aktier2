@@ -201,7 +201,7 @@ export default function NewsScrapingPage() {
       }
     }
 
-    return [...new Set(matches)]; // Remove duplicates
+    return Array.from(new Set(matches)); // Remove duplicates
   };
 
   // Scrape news from selected source
