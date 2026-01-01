@@ -40,7 +40,7 @@ export default function NewsScrapingPage() {
   // Telegram configuration
   const [telegramConfig, setTelegramConfig] = useLocalStorage<TelegramConfig>("telegram-config", {
     botToken: "7783225076:AAG6DJG7V8YF5ZnEn4VnPuQRCQHc5jG7_oY",
-    chatId: "",
+    chatId: "2018516367",
   });
 
   // Scraping settings
