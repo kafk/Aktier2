@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         chat_id: body.chatId,
         text: body.message,
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         disable_web_page_preview: false,
       }),
     });

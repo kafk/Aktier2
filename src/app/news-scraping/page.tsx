@@ -98,6 +98,14 @@ export default function NewsScrapingPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const seenTitlesRef = useRef<Set<string>>(new Set());
 
+  // Escape HTML special characters
+  const escapeHtml = (text: string) => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  };
+
   // Send Telegram notification
   const sendTelegramNotification = async (article: ScrapedArticle) => {
     if (!telegramConfig.botToken || !telegramConfig.chatId) {
@@ -105,8 +113,9 @@ export default function NewsScrapingPage() {
       return false;
     }
 
-    const message = `🔔 *News Alert!*\n\n` +
-      `📰 *${article.title}*\n\n` +
+    const safeTitle = escapeHtml(article.title);
+    const message = `🔔 <b>News Alert!</b>\n\n` +
+      `📰 <b>${safeTitle}</b>\n\n` +
       `🔑 Keywords: ${article.matchedKeywords.join(", ")}\n` +
       `📅 Date: ${new Date(article.pubDate).toLocaleString()}\n` +
       `🔗 ${article.link}`;
