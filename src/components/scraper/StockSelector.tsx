@@ -47,7 +47,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Select Stocks to Monitor</CardTitle>
+        <CardTitle>Common names</CardTitle>
         <CardDescription>Choose which stocks to scan for news</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
