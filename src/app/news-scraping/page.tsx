@@ -10,6 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle } from "lucide-react";
+import { StockSelector } from "@/components/scraper/StockSelector";
+import { KeywordSelector } from "@/components/scraper/KeywordSelector";
+import { Stock, ScraperKeyword } from "@/types/scraper";
 import {
   Classification,
   defaultClassifications,
@@ -56,18 +59,44 @@ export default function NewsScrapingPage() {
     defaultClassifications
   );
 
+  // Stock and keyword selection (shared with History Scraping)
+  const [selectedStocks, setSelectedStocks] = useLocalStorage<Stock[]>(
+    "scraper-stocks",
+    []
+  );
+  const [selectedKeywords, setSelectedKeywords] = useLocalStorage<ScraperKeyword[]>(
+    "scraper-keywords",
+    []
+  );
+  const [hasInitializedKeywords, setHasInitializedKeywords] = useState(false);
+
+  // Initialize keywords from all active classifications on first load
+  useEffect(() => {
+    if (!hasInitializedKeywords && classifications.length > 0 && selectedKeywords.length === 0) {
+      const allKeywords: ScraperKeyword[] = [];
+      for (const classification of classifications) {
+        if (classification.isActive) {
+          for (const kw of classification.keywords) {
+            allKeywords.push({
+              id: `${classification.id}-${kw}`,
+              keyword: kw.toLowerCase(),
+              source: "classification",
+              classificationId: classification.id,
+              classificationName: classification.name,
+            });
+          }
+        }
+      }
+      if (allKeywords.length > 0) {
+        setSelectedKeywords(allKeywords);
+      }
+      setHasInitializedKeywords(true);
+    }
+  }, [classifications, selectedKeywords, hasInitializedKeywords, setSelectedKeywords]);
+
   // Refs for interval management
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const seenTitlesRef = useRef<Set<string>>(new Set());
-
-  // Get all keywords from classifications
-  const getAllKeywords = useCallback((): string[] => {
-    const keywords: string[] = [];
-    for (const classification of classifications) {
-      keywords.push(...classification.keywords);
-    }
-    return keywords;
-  }, [classifications]);
 
   // Send Telegram notification
   const sendTelegramNotification = async (article: ScrapedArticle) => {
@@ -106,15 +135,14 @@ export default function NewsScrapingPage() {
     }
   };
 
-  // Check if article matches any keywords
+  // Check if article matches any selected keywords
   const findMatchingKeywords = (title: string, description: string): string[] => {
     const text = `${title} ${description}`.toLowerCase();
-    const keywords = getAllKeywords();
     const matches: string[] = [];
 
-    for (const keyword of keywords) {
-      if (text.includes(keyword.toLowerCase())) {
-        matches.push(keyword);
+    for (const kw of selectedKeywords) {
+      if (text.includes(kw.keyword.toLowerCase())) {
+        matches.push(kw.keyword);
       }
     }
 
@@ -162,33 +190,38 @@ export default function NewsScrapingPage() {
         }
       }
 
-      // Fetch from Yahoo
+      // Fetch from Yahoo - use selected stocks
       if (newsSource === "yahoo" || newsSource === "both") {
-        // For Yahoo, we'd need a symbol - for now just use a general fetch
-        const response = await fetch("/api/yahoo-news?symbol=AAPL");
-        const data = await response.json();
+        const stocksToFetch = selectedStocks.length > 0
+          ? selectedStocks.map(s => s.symbol)
+          : ["AAPL"]; // Fallback if no stocks selected
 
-        if (data.articles && Array.isArray(data.articles)) {
-          for (const article of data.articles) {
-            if (seenTitlesRef.current.has(article.title)) continue;
+        for (const symbol of stocksToFetch) {
+          const response = await fetch(`/api/yahoo-news?symbol=${symbol}`);
+          const data = await response.json();
 
-            const matchedKeywords = findMatchingKeywords(article.title, article.description || "");
+          if (data.articles && Array.isArray(data.articles)) {
+            for (const article of data.articles) {
+              if (seenTitlesRef.current.has(article.title)) continue;
 
-            if (matchedKeywords.length > 0) {
-              const scrapedArticle: ScrapedArticle = {
-                title: article.title,
-                link: article.link,
-                pubDate: article.pubDate,
-                description: article.description || "",
-                source: "Yahoo Finance",
-                matchedKeywords,
-                notifiedAt: new Date().toISOString(),
-              };
+              const matchedKeywords = findMatchingKeywords(article.title, article.description || "");
 
-              newArticles.push(scrapedArticle);
-              seenTitlesRef.current.add(article.title);
+              if (matchedKeywords.length > 0) {
+                const scrapedArticle: ScrapedArticle = {
+                  title: article.title,
+                  link: article.link,
+                  pubDate: article.pubDate,
+                  description: article.description || "",
+                  source: `Yahoo Finance (${symbol})`,
+                  matchedKeywords,
+                  notifiedAt: new Date().toISOString(),
+                };
 
-              await sendTelegramNotification(scrapedArticle);
+                newArticles.push(scrapedArticle);
+                seenTitlesRef.current.add(article.title);
+
+                await sendTelegramNotification(scrapedArticle);
+              }
             }
           }
         }
@@ -296,6 +329,19 @@ export default function NewsScrapingPage() {
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Left Column - Configuration */}
           <div className="space-y-6">
+            {/* Stock Selector */}
+            <StockSelector
+              selectedStocks={selectedStocks}
+              onStocksChange={setSelectedStocks}
+            />
+
+            {/* Keyword Selector */}
+            <KeywordSelector
+              selectedKeywords={selectedKeywords}
+              onKeywordsChange={setSelectedKeywords}
+              classifications={classifications}
+            />
+
             {/* Telegram Configuration */}
             <Card>
               <CardHeader>
