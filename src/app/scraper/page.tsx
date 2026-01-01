@@ -652,7 +652,8 @@ export default function ScraperPage() {
   return (
     <main className="min-h-screen bg-background">
       <Header
-        title="News Scraper"
+        title="History Scraping"
+        titleClassName="text-red-600"
         subtitle={`Monitor stocks for keyword-matching news from ${
           newsSource === "placera" ? "Placera.se" :
           newsSource === "yahoo" ? "Yahoo Finance" :

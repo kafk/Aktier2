@@ -6,16 +6,17 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 // App version - increment for each update: v1.02 -> v1.03 -> v1.04
-export const APP_VERSION = "1.31";
+export const APP_VERSION = "1.32";
 
 interface HeaderProps {
   title: string;
   subtitle?: string;
   backHref?: string;
   children?: ReactNode; // For action buttons
+  titleClassName?: string; // Custom styling for title
 }
 
-export function Header({ title, subtitle, backHref, children }: HeaderProps) {
+export function Header({ title, subtitle, backHref, children, titleClassName }: HeaderProps) {
   return (
     <header className="border-b bg-white mb-6">
       <div className="container mx-auto px-4 py-4">
@@ -30,7 +31,7 @@ export function Header({ title, subtitle, backHref, children }: HeaderProps) {
               </Link>
             )}
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+              <h1 className={`text-2xl font-bold tracking-tight ${titleClassName || ""}`}>{title}</h1>
               <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
                 v{APP_VERSION}
               </span>
