@@ -417,7 +417,56 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
   const $ = cheerio.load(html);
   const articles: PlaceraNewsItem[] = [];
 
-  // First try the search page structure (from Placera's sok.html)
+  // PRIORITY 1: Focus on <article> elements only - ignore related content outside
+  const articleElements = $("article");
+  if (articleElements.length > 0) {
+    console.log(`Found ${articleElements.length} <article> elements - focusing only on these`);
+    articleElements.each((_, element) => {
+      const $article = $(element);
+
+      // Get text only from within this article element
+      const articleText = $article.text().trim();
+
+      // Find title - look for h1, h2, or strong text within article
+      let title = $article.find("h1").first().text().trim() ||
+                  $article.find("h2").first().text().trim() ||
+                  $article.find("strong").first().text().trim();
+
+      // Find link within article
+      const href = $article.find("a[href*='/telegram/']").first().attr("href") || "";
+      const link = href ? (href.startsWith("http") ? href : `https://www.placera.se${href}`) : "";
+
+      // Find date
+      const timeEl = $article.find("time");
+      let pubDate = timeEl.attr("datetime") || "";
+      if (!pubDate) {
+        const dateStr = extractDateFromText(articleText);
+        pubDate = dateStr ? parseSwedishDate(dateStr) : new Date().toISOString();
+      }
+
+      // Get description from article content
+      const description = $article.find("p").first().text().trim().slice(0, 200);
+
+      if (title && title.length > 5) {
+        articles.push({
+          title,
+          link: link || sourceUrl,
+          pubDate,
+          description,
+          source: `Placera ${category} (${sourceUrl})`,
+          category,
+          ticker: extractTicker(title),
+        });
+      }
+    });
+
+    if (articles.length > 0) {
+      console.log(`Parsed ${articles.length} articles from <article> elements`);
+      return articles;
+    }
+  }
+
+  // PRIORITY 2: Try the search page structure (from Placera's sok.html)
   // This has .searchItem containers with h2, .intro, .publishedBy
   const searchItems = $(".searchItem");
   if (searchItems.length > 0) {

@@ -222,27 +222,53 @@ export default function NewsScrapingPage() {
             // Skip if already seen
             if (seenTitlesRef.current.has(article.title)) continue;
 
+            // Step 1: Check if keywords match from listing page
             const matchedKeywords = findMatchingKeywords(article.title, article.description || "");
-            const matchedStocks = findMatchingStocks(article.title, article.description || "");
 
-            // Only notify if BOTH a stock AND a keyword match
-            if (matchedKeywords.length > 0 && matchedStocks.length > 0) {
-              const scrapedArticle: ScrapedArticle = {
-                title: article.title,
-                link: article.link,
-                pubDate: article.pubDate,
-                description: article.description || "",
-                source: "Placera",
-                matchedKeywords,
-                matchedStocks,
-                notifiedAt: new Date().toISOString(),
-              };
+            if (matchedKeywords.length > 0) {
+              // Step 2: Verify by fetching actual article page and checking <article> element
+              console.log(`Keyword match found: "${article.title}" - verifying article content...`);
 
-              newArticles.push(scrapedArticle);
-              seenTitlesRef.current.add(article.title);
+              try {
+                const verifyResponse = await fetch("/api/verify-article", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    url: article.link,
+                    stocks: selectedStocks.map(s => s.symbol),
+                  }),
+                });
 
-              // Send Telegram notification
-              await sendTelegramNotification(scrapedArticle);
+                const verifyData = await verifyResponse.json();
+
+                if (verifyData.verified && verifyData.matchedStocks?.length > 0) {
+                  console.log(`Article verified! Stock found in <article>: ${verifyData.matchedStocks.join(", ")}`);
+
+                  const scrapedArticle: ScrapedArticle = {
+                    title: article.title,
+                    link: article.link,
+                    pubDate: article.pubDate,
+                    description: article.description || "",
+                    source: "Placera",
+                    matchedKeywords,
+                    matchedStocks: verifyData.matchedStocks,
+                    notifiedAt: new Date().toISOString(),
+                  };
+
+                  newArticles.push(scrapedArticle);
+                  seenTitlesRef.current.add(article.title);
+
+                  // Send Telegram notification
+                  await sendTelegramNotification(scrapedArticle);
+                } else {
+                  console.log(`Article NOT verified - stock not found in <article> element`);
+                  // Still mark as seen to avoid re-checking
+                  seenTitlesRef.current.add(article.title);
+                }
+              } catch (verifyError) {
+                console.error("Verification failed:", verifyError);
+                // On verification error, skip this article
+              }
             }
           }
         }
