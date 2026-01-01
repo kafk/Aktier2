@@ -36,8 +36,8 @@ type ScrapeInterval = "1" | "5" | "10" | "15" | "30";
 export default function NewsScrapingPage() {
   // Telegram configuration
   const [telegramConfig, setTelegramConfig] = useLocalStorage<TelegramConfig>("telegram-config", {
-    botToken: "",
-    chatId: "",
+    botToken: "REDACTED_USE_TELEGRAM_BOT_TOKEN_ENV",
+    chatId: "6365420985",
   });
 
   // Scraping settings
