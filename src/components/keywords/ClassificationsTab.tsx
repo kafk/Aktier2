@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { Classification, Sentiment } from "@/types/keywords";
+import { Classification, Sentiment, defaultClassifications } from "@/types/keywords";
 
 interface ClassificationsTabProps {
   classifications: Classification[];
@@ -52,6 +52,7 @@ export function ClassificationsTab({
   const [formData, setFormData] = useState<Omit<Classification, "id">>(emptyClassification);
   const [keywordsText, setKeywordsText] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const filteredClassifications = classifications.filter(
     (c) =>
@@ -118,6 +119,11 @@ export function ClassificationsTab({
     );
   };
 
+  const handleResetToDefaults = () => {
+    setClassifications(defaultClassifications);
+    setShowResetConfirm(false);
+  };
+
   const getSentimentBadge = (sentiment: Sentiment) => {
     const variants = {
       positive: "positive" as const,
@@ -137,10 +143,16 @@ export function ClassificationsTab({
               {classifications.length} rules configured
             </CardDescription>
           </div>
-          <Button onClick={handleAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Classification
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowResetConfirm(true)}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Reset to Defaults
+            </Button>
+            <Button onClick={handleAdd}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Classification
+            </Button>
+          </div>
         </div>
         <div className="relative mt-4">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -368,6 +380,26 @@ export function ClassificationsTab({
               onClick={() => deleteConfirmId && handleDelete(deleteConfirmId)}
             >
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Confirmation Dialog */}
+      <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset to Defaults</DialogTitle>
+            <DialogDescription>
+              This will replace all classifications with the latest defaults, including new Swedish keywords and 8 new categories. Your custom classifications will be removed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResetConfirm(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleResetToDefaults}>
+              Reset to Defaults
             </Button>
           </DialogFooter>
         </DialogContent>
