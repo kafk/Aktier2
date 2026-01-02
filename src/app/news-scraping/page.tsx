@@ -54,9 +54,9 @@ export default function NewsScrapingPage() {
   const [scrapeCount, setScrapeCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Classifications for keyword matching
+  // Classifications for keyword matching - use same key as main page for consistency
   const [classifications] = useLocalStorage<Classification[]>(
-    "keyword-classifications",
+    "classifications",
     defaultClassifications
   );
 
