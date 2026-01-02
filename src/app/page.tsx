@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Newspaper, Bell } from "lucide-react";
+import { Newspaper, Bell, Building2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
@@ -33,6 +33,12 @@ export default function KeywordManagement() {
         title="Keyword Management"
         subtitle="Configure keywords and scoring rules for news scraping"
       >
+        <Link href="/companies">
+          <Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50">
+            <Building2 className="h-4 w-4 mr-2" />
+            Companies
+          </Button>
+        </Link>
         <Link href="/news-scraping">
           <Button variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
             <Bell className="h-4 w-4 mr-2" />
