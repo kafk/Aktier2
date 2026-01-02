@@ -53,6 +53,19 @@ export function ClassificationsTab({
   const [keywordsText, setKeywordsText] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [expandedKeywords, setExpandedKeywords] = useState<Set<string>>(new Set());
+
+  const toggleKeywordsExpanded = (id: string) => {
+    setExpandedKeywords(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   const filteredClassifications = classifications.filter(
     (c) =>
@@ -199,14 +212,23 @@ export function ClassificationsTab({
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1 max-w-md">
-                      {classification.keywords.slice(0, 4).map((keyword, i) => (
+                      {(expandedKeywords.has(classification.id)
+                        ? classification.keywords
+                        : classification.keywords.slice(0, 4)
+                      ).map((keyword, i) => (
                         <Badge key={i} variant="outline" className="text-xs">
                           {keyword}
                         </Badge>
                       ))}
                       {classification.keywords.length > 4 && (
-                        <Badge variant="secondary" className="text-xs">
-                          +{classification.keywords.length - 4} more
+                        <Badge
+                          variant="secondary"
+                          className="text-xs cursor-pointer hover:bg-secondary/80"
+                          onClick={() => toggleKeywordsExpanded(classification.id)}
+                        >
+                          {expandedKeywords.has(classification.id)
+                            ? "Show less"
+                            : `+${classification.keywords.length - 4} more`}
                         </Badge>
                       )}
                     </div>
