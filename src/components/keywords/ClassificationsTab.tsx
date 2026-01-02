@@ -165,6 +165,15 @@ export function ClassificationsTab({
         </div>
       </CardHeader>
       <CardContent>
+        {classifications.length === 0 ? (
+          <div className="text-center py-12 space-y-4">
+            <p className="text-muted-foreground">No classifications configured.</p>
+            <Button onClick={handleResetToDefaults}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Load Default Classifications (34 categories with Swedish keywords)
+            </Button>
+          </div>
+        ) : (
         <div className="rounded-md border">
           <table className="w-full">
             <thead className="bg-muted/50">
@@ -256,6 +265,7 @@ export function ClassificationsTab({
             </tbody>
           </table>
         </div>
+        )}
       </CardContent>
 
       {/* Add/Edit Dialog */}
