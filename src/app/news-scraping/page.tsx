@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, CheckCircle, Search, Building2 } from "lucide-react";
+import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, Building2, Settings } from "lucide-react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
 import { Stock, ScraperKeyword } from "@/types/scraper";
@@ -39,10 +39,10 @@ type NewsSource = "placera" | "yahoo" | "both";
 type ScrapeInterval = "1" | "5" | "10" | "15" | "30";
 
 export default function NewsScrapingPage() {
-  // Telegram configuration
-  const [telegramConfig, setTelegramConfig] = useLocalStorage<TelegramConfig>("telegram-config", {
-    botToken: "8388583066:AAGo9qmVrsn09QxYZ5NoSnbbGo4R6dGr9CI",
-    chatId: "2018516367",
+  // Telegram configuration (read-only, configured in /telegram)
+  const [telegramConfig] = useLocalStorage<TelegramConfig>("telegram-config", {
+    botToken: "",
+    chatId: "",
   });
 
   // Scraping settings
@@ -373,82 +373,7 @@ export default function NewsScrapingPage() {
     };
   }, []);
 
-  // State for verification results
-  const [verifyResult, setVerifyResult] = useState<string | null>(null);
-
-  // Verify Telegram config - finds correct chat ID
-  const verifyTelegram = async () => {
-    if (!telegramConfig.botToken) {
-      setErrorMessage("Please enter Bot Token first");
-      return;
-    }
-
-    setVerifyResult(null);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch("/api/telegram-verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          botToken: telegramConfig.botToken,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setErrorMessage(`Verify error: ${data.error}`);
-        return;
-      }
-
-      if (data.chats && data.chats.length > 0) {
-        const chatInfo = data.chats.map((c: { chatId: number; username?: string; firstName?: string }) =>
-          `Chat ID: ${c.chatId} (${c.username || c.firstName || 'Unknown'})`
-        ).join('\n');
-
-        // Auto-fill the first chat ID found
-        const firstChatId = data.chats[0].chatId.toString();
-        setTelegramConfig(prev => ({ ...prev, chatId: firstChatId }));
-        setVerifyResult(`Found ${data.chats.length} chat(s):\n${chatInfo}\n\nChat ID auto-filled: ${firstChatId}`);
-      } else {
-        setVerifyResult("No chats found. Please:\n1. Open Telegram\n2. Find @Gotainnovation_bot\n3. Send /start\n4. Click Verify again");
-      }
-    } catch (error) {
-      setErrorMessage(`Failed to verify: ${error}`);
-    }
-  };
-
-  // Test Telegram connection
-  const testTelegram = async () => {
-    if (!telegramConfig.botToken || !telegramConfig.chatId) {
-      setErrorMessage("Please enter Bot Token and Chat ID");
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/telegram-notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          botToken: telegramConfig.botToken,
-          chatId: telegramConfig.chatId,
-          message: "✅ Test notification from News Scraping app!",
-        }),
-      });
-
-      if (response.ok) {
-        setErrorMessage(null);
-        setVerifyResult(null);
-        alert("Test message sent successfully!");
-      } else {
-        const error = await response.json();
-        setErrorMessage(`Telegram error: ${error.error}`);
-      }
-    } catch (error) {
-      setErrorMessage(`Failed to send test: ${error}`);
-    }
-  };
+  const isTelegramConfigured = telegramConfig.botToken && telegramConfig.chatId;
 
   return (
     <main className="min-h-screen bg-background">
@@ -483,65 +408,33 @@ export default function NewsScrapingPage() {
               classifications={classifications}
             />
 
-            {/* Telegram Configuration */}
+            {/* Telegram Status */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Send className="h-5 w-5" />
-                  Telegram Configuration
+                  Telegram Notifications
                 </CardTitle>
-                <CardDescription>
-                  Configure your Telegram bot for notifications
-                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="botToken">Bot Token</Label>
-                  <Input
-                    id="botToken"
-                    type="password"
-                    placeholder="Enter your Telegram bot token"
-                    value={telegramConfig.botToken}
-                    onChange={(e) => setTelegramConfig(prev => ({ ...prev, botToken: e.target.value }))}
-                    disabled={isRunning}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="chatId">Chat ID</Label>
-                  <Input
-                    id="chatId"
-                    placeholder="Enter your Telegram chat ID"
-                    value={telegramConfig.chatId}
-                    onChange={(e) => setTelegramConfig(prev => ({ ...prev, chatId: e.target.value }))}
-                    disabled={isRunning}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={verifyTelegram}
-                    disabled={isRunning || !telegramConfig.botToken}
-                  >
-                    <Search className="h-4 w-4 mr-2" />
-                    Verify & Find Chat ID
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={testTelegram}
-                    disabled={isRunning || !telegramConfig.botToken || !telegramConfig.chatId}
-                  >
-                    <Bell className="h-4 w-4 mr-2" />
-                    Test Notification
-                  </Button>
-                </div>
-
-                {verifyResult && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="h-4 w-4 text-blue-500 mt-0.5" />
-                      <pre className="text-blue-700 text-sm whitespace-pre-wrap">{verifyResult}</pre>
-                    </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-3 w-3 rounded-full ${isTelegramConfigured ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                    <span className="font-medium">
+                      {isTelegramConfigured ? 'Telegram is configured' : 'Telegram not configured'}
+                    </span>
                   </div>
+                  <Link href="/telegram">
+                    <Button variant="outline" size="sm">
+                      <Settings className="h-4 w-4 mr-2" />
+                      Settings
+                    </Button>
+                  </Link>
+                </div>
+                {!isTelegramConfigured && (
+                  <p className="text-sm text-muted-foreground">
+                    Configure your Telegram bot to receive news alerts.
+                  </p>
                 )}
               </CardContent>
             </Card>
@@ -602,7 +495,7 @@ export default function NewsScrapingPage() {
                     <Button
                       onClick={startScraping}
                       className="flex-1 bg-green-600 hover:bg-green-700"
-                      disabled={!telegramConfig.botToken || !telegramConfig.chatId}
+                      disabled={!isTelegramConfigured}
                     >
                       <Play className="h-4 w-4 mr-2" />
                       Start Scraping
