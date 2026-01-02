@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -9,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, CheckCircle, Search } from "lucide-react";
+import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, CheckCircle, Search, Building2 } from "lucide-react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
 import { Stock, ScraperKeyword } from "@/types/scraper";
@@ -456,7 +457,14 @@ export default function NewsScrapingPage() {
         titleClassName="text-green-600"
         subtitle="Real-time news monitoring with Telegram alerts"
         backHref="/"
-      />
+      >
+        <Link href="/companies">
+          <Button variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50">
+            <Building2 className="h-4 w-4 mr-2" />
+            Companies
+          </Button>
+        </Link>
+      </Header>
 
       <div className="container mx-auto px-4 pb-8">
         <div className="grid gap-6 lg:grid-cols-2">
