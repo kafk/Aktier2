@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, Building2, Settings } from "lucide-react";
+import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, Building2, Settings, Cloud, Upload, CheckCircle } from "lucide-react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
 import { Stock, ScraperKeyword } from "@/types/scraper";
@@ -55,6 +55,11 @@ export default function NewsScrapingPage() {
   const [scrapeCount, setScrapeCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Server-side scraping state
+  const [serverSyncStatus, setServerSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
+  const [serverIsRunning, setServerIsRunning] = useState(false);
+  const [serverLastSync, setServerLastSync] = useState<string | null>(null);
+
   // Classifications for keyword matching - use same key as main page for consistency
   const [classifications] = useLocalStorage<Classification[]>(
     "classifications",
@@ -95,6 +100,74 @@ export default function NewsScrapingPage() {
       setHasInitializedKeywords(true);
     }
   }, [classifications, selectedKeywords, hasInitializedKeywords, setSelectedKeywords]);
+
+  // Fetch server config on mount
+  useEffect(() => {
+    const fetchServerConfig = async () => {
+      try {
+        const response = await fetch("/api/sync-config");
+        const data = await response.json();
+        if (data.success && data.config) {
+          setServerIsRunning(data.config.isRunning);
+          setServerLastSync(data.config.lastUpdated);
+          setServerSyncStatus("synced");
+        }
+      } catch {
+        // Server config not available (Vercel KV not set up)
+      }
+    };
+    fetchServerConfig();
+  }, []);
+
+  // Sync config to server
+  const syncToServer = async () => {
+    setServerSyncStatus("syncing");
+    try {
+      const response = await fetch("/api/sync-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stocks: selectedStocks,
+          keywords: selectedKeywords.map(k => k.keyword),
+          newsSource,
+          scrapeInterval,
+          isRunning: serverIsRunning,
+          telegramBotToken: telegramConfig.botToken,
+          telegramChatId: telegramConfig.chatId,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setServerSyncStatus("synced");
+        setServerLastSync(new Date().toISOString());
+      } else {
+        setServerSyncStatus("error");
+        setErrorMessage(data.error || "Failed to sync");
+      }
+    } catch (error) {
+      setServerSyncStatus("error");
+      setErrorMessage(`Sync failed: ${error}`);
+    }
+  };
+
+  // Toggle server-side scraping
+  const toggleServerScraping = async (running: boolean) => {
+    try {
+      const response = await fetch("/api/sync-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRunning: running }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setServerIsRunning(running);
+      } else {
+        setErrorMessage(data.error || "Failed to toggle server scraping");
+      }
+    } catch (error) {
+      setErrorMessage(`Toggle failed: ${error}`);
+    }
+  };
 
   // Refs for interval management
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -532,6 +605,97 @@ export default function NewsScrapingPage() {
                     <AlertTriangle className="h-4 w-4 text-red-500" />
                     <span className="text-red-700 text-sm">{errorMessage}</span>
                   </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Server-Side Scraping */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Cloud className="h-5 w-5" />
+                  Server-Side Scraping
+                </CardTitle>
+                <CardDescription>
+                  Runs automatically on Vercel, even when browser is closed
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Sync Status */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-3 w-3 rounded-full ${
+                      serverSyncStatus === "synced" ? "bg-green-500" :
+                      serverSyncStatus === "syncing" ? "bg-yellow-500 animate-pulse" :
+                      serverSyncStatus === "error" ? "bg-red-500" : "bg-gray-300"
+                    }`} />
+                    <span className="text-sm">
+                      {serverSyncStatus === "synced" ? "Config synced to server" :
+                       serverSyncStatus === "syncing" ? "Syncing..." :
+                       serverSyncStatus === "error" ? "Sync failed" : "Not synced"}
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={syncToServer}
+                    disabled={serverSyncStatus === "syncing" || !isTelegramConfigured}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Sync to Server
+                  </Button>
+                </div>
+
+                {serverLastSync && (
+                  <p className="text-xs text-muted-foreground">
+                    Last synced: {new Date(serverLastSync).toLocaleString()}
+                  </p>
+                )}
+
+                {/* Server Control */}
+                {serverSyncStatus === "synced" && (
+                  <div className="border-t pt-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`h-2 w-2 rounded-full ${serverIsRunning ? "bg-green-500 animate-pulse" : "bg-gray-300"}`} />
+                        <span className="font-medium">
+                          {serverIsRunning ? "Server scraping active" : "Server scraping stopped"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {!serverIsRunning ? (
+                        <Button
+                          onClick={() => toggleServerScraping(true)}
+                          className="flex-1 bg-purple-600 hover:bg-purple-700"
+                          size="sm"
+                        >
+                          <Play className="h-4 w-4 mr-2" />
+                          Start Server Scraping
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => toggleServerScraping(false)}
+                          variant="outline"
+                          className="flex-1"
+                          size="sm"
+                        >
+                          <Square className="h-4 w-4 mr-2" />
+                          Stop Server Scraping
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Server scraping runs every {scrapeInterval} minutes via Vercel Cron.
+                      Control via Telegram: /start, /stop, /status
+                    </p>
+                  </div>
+                )}
+
+                {serverSyncStatus !== "synced" && (
+                  <p className="text-sm text-muted-foreground">
+                    Sync your config to enable server-side scraping that works 24/7.
+                  </p>
                 )}
               </CardContent>
             </Card>
