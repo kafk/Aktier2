@@ -473,36 +473,49 @@ export default function ScraperPage() {
             articlesScanned++;
 
             // Try to match with selected stocks or use ticker from article
-            let matchedStock = article.ticker;
+            let matchedStock: string | undefined = undefined;
 
-            // If article has a ticker, check if it's in our selected stocks
-            if (matchedStock) {
-              const stockMatch = selectedStocks.find(s =>
-                s.symbol.toUpperCase() === matchedStock?.toUpperCase() ||
-                s.symbol.toUpperCase() === matchedStock?.replace(".ST", "").toUpperCase()
-              );
-              if (stockMatch) {
-                matchedStock = stockMatch.symbol;
-              }
-            }
-
-            // If no ticker, try to find stock mention in title/description
-            if (!matchedStock) {
-              for (const stock of selectedStocks) {
-                if (
-                  article.title.toUpperCase().includes(stock.symbol) ||
-                  article.title.toUpperCase().includes(stock.name?.toUpperCase() || "") ||
-                  article.description.toUpperCase().includes(stock.symbol)
-                ) {
-                  matchedStock = stock.symbol;
-                  break;
+            if (selectedStocks.length > 0) {
+              // 1. If article has a ticker, check if it matches one of our selected stocks
+              if (article.ticker) {
+                const cleanTicker = article.ticker.replace(/\.ST$/i, "").toUpperCase();
+                const stockMatch = selectedStocks.find(s =>
+                  s.symbol.toUpperCase() === article.ticker?.toUpperCase() ||
+                  s.symbol.toUpperCase() === cleanTicker
+                );
+                if (stockMatch) {
+                  matchedStock = stockMatch.symbol;
                 }
               }
-            }
 
-            // Default to first selected stock if none matched (for keyword-only matching)
-            if (!matchedStock && selectedStocks.length > 0) {
-              matchedStock = selectedStocks[0].symbol;
+              // 2. If no direct ticker match, check if any selected stock symbol or name is mentioned
+              if (!matchedStock) {
+                const titleLower = article.title.toLowerCase();
+                const descLower = article.description.toLowerCase();
+
+                for (const stock of selectedStocks) {
+                  const symbolUpper = stock.symbol.toUpperCase();
+                  const nameLower = stock.name ? stock.name.toLowerCase() : "";
+
+                  // Match symbol with word boundary or name match
+                  const symbolRegex = new RegExp(`(^|[^a-zA-Z0-9])${symbolUpper}([^a-zA-Z0-9]|$)`, "i");
+                  const matchesSymbol = symbolRegex.test(article.title) || symbolRegex.test(article.description);
+                  const matchesName = nameLower.length > 2 && (titleLower.includes(nameLower) || descLower.includes(nameLower));
+
+                  if (matchesSymbol || matchesName) {
+                    matchedStock = stock.symbol;
+                    break;
+                  }
+                }
+              }
+
+              // If this article does not match any selected stock, skip it
+              if (!matchedStock) {
+                continue;
+              }
+            } else {
+              // If no specific stocks are selected, use article ticker or generic tag
+              matchedStock = article.ticker ? article.ticker.replace(/\.ST$/i, "") : "MARKET";
             }
 
             if (matchedStock) {
