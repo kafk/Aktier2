@@ -479,10 +479,14 @@ export default function ScraperPage() {
               // 1. If article has a ticker, check if it matches one of our selected stocks
               if (article.ticker) {
                 const cleanTicker = article.ticker.replace(/\.ST$/i, "").toUpperCase();
-                const stockMatch = selectedStocks.find(s =>
-                  s.symbol.toUpperCase() === article.ticker?.toUpperCase() ||
-                  s.symbol.toUpperCase() === cleanTicker
-                );
+                const stockMatch = selectedStocks.find(s => {
+                  const sym = s.symbol.toUpperCase().replace(/\.ST$/i, "").replace(/\s+(A|B|C)$/i, "");
+                  return (
+                    s.symbol.toUpperCase() === article.ticker?.toUpperCase() ||
+                    cleanTicker === s.symbol.toUpperCase() ||
+                    cleanTicker === sym
+                  );
+                });
                 if (stockMatch) {
                   matchedStock = stockMatch.symbol;
                 }
@@ -494,13 +498,12 @@ export default function ScraperPage() {
                 const descLower = article.description.toLowerCase();
 
                 for (const stock of selectedStocks) {
-                  const symbolUpper = stock.symbol.toUpperCase();
+                  const symbolClean = stock.symbol.replace(/\.ST$/i, "").replace(/\s+(A|B|C)$/i, "").toLowerCase();
                   const nameLower = stock.name ? stock.name.toLowerCase() : "";
 
-                  // Match symbol with word boundary or name match
-                  const symbolRegex = new RegExp(`(^|[^a-zA-Z0-9])${symbolUpper}([^a-zA-Z0-9]|$)`, "i");
-                  const matchesSymbol = symbolRegex.test(article.title) || symbolRegex.test(article.description);
-                  const matchesName = nameLower.length > 2 && (titleLower.includes(nameLower) || descLower.includes(nameLower));
+                  // Match symbol or company name (e.g. "Volvo", "Ericsson", "Investor", "Saab")
+                  const matchesSymbol = symbolClean.length >= 3 && (titleLower.includes(symbolClean) || descLower.includes(symbolClean));
+                  const matchesName = nameLower.length >= 3 && (titleLower.includes(nameLower) || descLower.includes(nameLower));
 
                   if (matchesSymbol || matchesName) {
                     matchedStock = stock.symbol;
@@ -658,9 +661,9 @@ export default function ScraperPage() {
   };
 
   const canStart =
-    selectedStocks.length > 0 &&
     selectedKeywords.length > 0 &&
-    !scraperState.isRunning;
+    !scraperState.isRunning &&
+    (newsSource === "placera" || selectedStocks.length > 0);
 
   return (
     <main className="min-h-screen bg-background">

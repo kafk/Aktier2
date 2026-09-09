@@ -75,6 +75,28 @@ export interface ScraperState {
 
 // Popular stocks for quick selection
 export const popularStocks: Stock[] = [
+  // 🇸🇪 Swedish Stocks (OMXS30 & Popular)
+  { symbol: "VOLV B", name: "Volvo" },
+  { symbol: "ERIC B", name: "Ericsson" },
+  { symbol: "INVE B", name: "Investor" },
+  { symbol: "EVO", name: "Evolution" },
+  { symbol: "AZN", name: "AstraZeneca" },
+  { symbol: "ATCO A", name: "Atlas Copco" },
+  { symbol: "HM B", name: "H&M" },
+  { symbol: "SAAB B", name: "Saab" },
+  { symbol: "SEB A", name: "SEB" },
+  { symbol: "SWED A", name: "Swedbank" },
+  { symbol: "SHB A", name: "Handelsbanken" },
+  { symbol: "NDA SE", name: "Nordea" },
+  { symbol: "NIBE B", name: "NIBE Industrier" },
+  { symbol: "SAND", name: "Sandvik" },
+  { symbol: "SINCH", name: "Sinch" },
+  { symbol: "EMBRAC B", name: "Embracer" },
+  { symbol: "ESSITY B", name: "Essity" },
+  { symbol: "TELIA", name: "Telia Company" },
+  { symbol: "SBB B", name: "Samhällsbyggnadsbolaget" },
+  { symbol: "EQT", name: "EQT" },
+  // 🇺🇸 US Stocks
   { symbol: "AAPL", name: "Apple Inc." },
   { symbol: "MSFT", name: "Microsoft Corporation" },
   { symbol: "GOOGL", name: "Alphabet Inc." },
@@ -83,16 +105,7 @@ export const popularStocks: Stock[] = [
   { symbol: "META", name: "Meta Platforms Inc." },
   { symbol: "TSLA", name: "Tesla Inc." },
   { symbol: "JPM", name: "JPMorgan Chase & Co." },
-  { symbol: "V", name: "Visa Inc." },
-  { symbol: "JNJ", name: "Johnson & Johnson" },
-  { symbol: "WMT", name: "Walmart Inc." },
-  { symbol: "PG", name: "Procter & Gamble Co." },
-  { symbol: "MA", name: "Mastercard Inc." },
-  { symbol: "UNH", name: "UnitedHealth Group Inc." },
-  { symbol: "HD", name: "Home Depot Inc." },
   { symbol: "DIS", name: "Walt Disney Co." },
-  { symbol: "BAC", name: "Bank of America Corp." },
-  { symbol: "ADBE", name: "Adobe Inc." },
-  { symbol: "CRM", name: "Salesforce Inc." },
   { symbol: "NFLX", name: "Netflix Inc." },
 ];
+
