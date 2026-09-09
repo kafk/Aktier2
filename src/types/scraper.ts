@@ -75,6 +75,28 @@ export interface ScraperState {
 
 // Popular stocks for quick selection
 export const popularStocks: Stock[] = [
+  // 🇺🇸 US Tech & Mega Caps
+  { symbol: "NVDA", name: "NVIDIA" },
+  { symbol: "AAPL", name: "Apple" },
+  { symbol: "MSFT", name: "Microsoft" },
+  { symbol: "GOOGL", name: "Google / Alphabet" },
+  { symbol: "AMZN", name: "Amazon" },
+  { symbol: "META", name: "Meta Platforms" },
+  { symbol: "TSLA", name: "Tesla" },
+  { symbol: "AMD", name: "AMD" },
+  { symbol: "NFLX", name: "Netflix" },
+  { symbol: "PLTR", name: "Palantir" },
+  { symbol: "COIN", name: "Coinbase" },
+  { symbol: "DIS", name: "Disney" },
+  { symbol: "JPM", name: "JPMorgan Chase" },
+  { symbol: "V", name: "Visa" },
+  { symbol: "WMT", name: "Walmart" },
+  { symbol: "CRM", name: "Salesforce" },
+  { symbol: "ADBE", name: "Adobe" },
+  { symbol: "INTC", name: "Intel" },
+  { symbol: "QCOM", name: "Qualcomm" },
+  { symbol: "UBER", name: "Uber" },
+
   // 🇸🇪 Swedish Stocks (OMXS30 & Popular)
   { symbol: "VOLV B", name: "Volvo" },
   { symbol: "ERIC B", name: "Ericsson" },
@@ -96,16 +118,5 @@ export const popularStocks: Stock[] = [
   { symbol: "TELIA", name: "Telia Company" },
   { symbol: "SBB B", name: "Samhällsbyggnadsbolaget" },
   { symbol: "EQT", name: "EQT" },
-  // 🇺🇸 US Stocks
-  { symbol: "AAPL", name: "Apple Inc." },
-  { symbol: "MSFT", name: "Microsoft Corporation" },
-  { symbol: "GOOGL", name: "Alphabet Inc." },
-  { symbol: "AMZN", name: "Amazon.com Inc." },
-  { symbol: "NVDA", name: "NVIDIA Corporation" },
-  { symbol: "META", name: "Meta Platforms Inc." },
-  { symbol: "TSLA", name: "Tesla Inc." },
-  { symbol: "JPM", name: "JPMorgan Chase & Co." },
-  { symbol: "DIS", name: "Walt Disney Co." },
-  { symbol: "NFLX", name: "Netflix Inc." },
 ];
 
