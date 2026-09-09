@@ -23,6 +23,7 @@ import { Settings, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
 import { calculatePriceMovement, DEFAULT_BASELINE } from "@/types/priceTracking";
+import { matchStockInArticle, detectStockFromArticle } from "@/lib/stockAliases";
 
 interface YahooNewsItem {
   title: string;
@@ -472,43 +473,14 @@ export default function ScraperPage() {
             const article = placeraArticles[i];
             articlesScanned++;
 
-            // Try to match with selected stocks or use ticker from article
+            // Match with selected stocks or auto-detect stock from article
             let matchedStock: string | undefined = undefined;
 
             if (selectedStocks.length > 0) {
-              // 1. If article has a ticker, check if it matches one of our selected stocks
-              if (article.ticker) {
-                const cleanTicker = article.ticker.replace(/\.ST$/i, "").toUpperCase();
-                const stockMatch = selectedStocks.find(s => {
-                  const sym = s.symbol.toUpperCase().replace(/\.ST$/i, "").replace(/\s+(A|B|C)$/i, "");
-                  return (
-                    s.symbol.toUpperCase() === article.ticker?.toUpperCase() ||
-                    cleanTicker === s.symbol.toUpperCase() ||
-                    cleanTicker === sym
-                  );
-                });
-                if (stockMatch) {
-                  matchedStock = stockMatch.symbol;
-                }
-              }
-
-              // 2. If no direct ticker match, check if any selected stock symbol or name is mentioned
-              if (!matchedStock) {
-                const titleLower = article.title.toLowerCase();
-                const descLower = article.description.toLowerCase();
-
-                for (const stock of selectedStocks) {
-                  const symbolClean = stock.symbol.replace(/\.ST$/i, "").replace(/\s+(A|B|C)$/i, "").toLowerCase();
-                  const nameLower = stock.name ? stock.name.toLowerCase() : "";
-
-                  // Match symbol or company name (e.g. "Volvo", "Ericsson", "Investor", "Saab")
-                  const matchesSymbol = symbolClean.length >= 3 && (titleLower.includes(symbolClean) || descLower.includes(symbolClean));
-                  const matchesName = nameLower.length >= 3 && (titleLower.includes(nameLower) || descLower.includes(nameLower));
-
-                  if (matchesSymbol || matchesName) {
-                    matchedStock = stock.symbol;
-                    break;
-                  }
+              for (const stock of selectedStocks) {
+                if (matchStockInArticle(article, stock)) {
+                  matchedStock = stock.symbol;
+                  break;
                 }
               }
 
@@ -517,8 +489,9 @@ export default function ScraperPage() {
                 continue;
               }
             } else {
-              // If no specific stocks are selected, use article ticker or generic tag
-              matchedStock = article.ticker ? article.ticker.replace(/\.ST$/i, "") : "MARKET";
+              // Market-wide mode: auto-detect stock from dictionary, headline prefix, or ticker
+              const detected = detectStockFromArticle(article);
+              matchedStock = detected ? detected.symbol : "MARKET";
             }
 
             if (matchedStock) {
