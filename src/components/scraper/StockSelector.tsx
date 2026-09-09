@@ -16,13 +16,22 @@ interface StockSelectorProps {
 export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [customSymbol, setCustomSymbol] = useState("");
+  const [marketFilter, setMarketFilter] = useState<"all" | "us" | "swe">("all");
 
-  const filteredStocks = popularStocks.filter(
-    (stock) =>
-      !selectedStocks.some((s) => s.symbol === stock.symbol) &&
-      (stock.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        stock.name.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const isSwedish = (s: Stock) =>
+    s.symbol.includes(" ") ||
+    ["EVO", "AZN", "SAND", "SINCH", "TELIA", "EQT", "BOL", "ALFA", "ABB"].includes(s.symbol);
+
+  const filteredStocks = popularStocks.filter((stock) => {
+    if (selectedStocks.some((s) => s.symbol === stock.symbol)) return false;
+    if (marketFilter === "us" && isSwedish(stock)) return false;
+    if (marketFilter === "swe" && !isSwedish(stock)) return false;
+
+    return (
+      stock.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      stock.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
 
   const addStock = (stock: Stock) => {
     if (!selectedStocks.some((s) => s.symbol === stock.symbol)) {
@@ -48,7 +57,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
     <Card>
       <CardHeader>
         <CardTitle>Select Stocks to Monitor</CardTitle>
-        <CardDescription>Choose which stocks to scan for news</CardDescription>
+        <CardDescription>Choose US or Swedish stocks to scan for news</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Selected Stocks */}
@@ -86,7 +95,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
         {/* Add Custom Stock */}
         <div className="flex gap-2">
           <Input
-            placeholder="Enter stock symbol (e.g., VOLV B, AAPL)"
+            placeholder="Enter stock symbol (e.g., NVDA, AAPL, VOLV B)"
             value={customSymbol}
             onChange={(e) => setCustomSymbol(e.target.value.toUpperCase())}
             onKeyDown={(e) => e.key === "Enter" && addCustomStock()}
@@ -98,27 +107,57 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
           </Button>
         </div>
 
-        {/* Search Popular Stocks */}
+        {/* Popular Stocks & Market Tabs */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium">Popular Stocks</label>
-            <span className="text-xs text-muted-foreground">Click to add</span>
+            <div className="flex gap-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setMarketFilter("all")}
+                className={`px-2 py-0.5 rounded ${
+                  marketFilter === "all" ? "bg-primary text-primary-foreground font-semibold" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setMarketFilter("us")}
+                className={`px-2 py-0.5 rounded ${
+                  marketFilter === "us" ? "bg-primary text-primary-foreground font-semibold" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                🇺🇸 US Tech
+              </button>
+              <button
+                type="button"
+                onClick={() => setMarketFilter("swe")}
+                className={`px-2 py-0.5 rounded ${
+                  marketFilter === "swe" ? "bg-primary text-primary-foreground font-semibold" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                🇸🇪 Swedish
+              </button>
+            </div>
           </div>
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search stocks (e.g., Volvo, Investor, Apple)..."
+              placeholder="Search stocks (e.g., Nvidia, Apple, Volvo)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
             />
           </div>
-          <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
-            {filteredStocks.slice(0, 16).map((stock) => (
+
+          <div className="flex flex-wrap gap-2 max-h-52 overflow-y-auto p-1">
+            {filteredStocks.map((stock) => (
               <Badge
                 key={stock.symbol}
                 variant="outline"
-                className="cursor-pointer hover:bg-accent py-1 px-2"
+                className="cursor-pointer hover:bg-accent py-1 px-2.5 transition-colors"
                 onClick={() => addStock(stock)}
               >
                 <Plus className="h-3 w-3 mr-1" />

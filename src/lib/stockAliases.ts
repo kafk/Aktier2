@@ -183,16 +183,26 @@ export const STOCK_DICTIONARY: StockInfo[] = [
   },
 
   // 🇺🇸 US Stocks
+  { symbol: "NVDA", name: "NVIDIA Corporation", aliases: ["NVIDIA", "NVDA"] },
   { symbol: "AAPL", name: "Apple Inc.", aliases: ["APPLE", "APPLE INC", "AAPL"] },
   { symbol: "MSFT", name: "Microsoft Corporation", aliases: ["MICROSOFT", "MSFT"] },
   { symbol: "GOOGL", name: "Alphabet Inc.", aliases: ["GOOGLE", "ALPHABET", "GOOGL", "GOOG"] },
   { symbol: "AMZN", name: "Amazon.com Inc.", aliases: ["AMAZON", "AMZN"] },
-  { symbol: "NVDA", name: "NVIDIA Corporation", aliases: ["NVIDIA", "NVDA"] },
   { symbol: "META", name: "Meta Platforms Inc.", aliases: ["META", "FACEBOOK"] },
   { symbol: "TSLA", name: "Tesla Inc.", aliases: ["TESLA", "TSLA"] },
-  { symbol: "JPM", name: "JPMorgan Chase & Co.", aliases: ["JPMORGAN", "JP MORGAN", "JPM"] },
-  { symbol: "DIS", name: "Walt Disney Co.", aliases: ["DISNEY", "WALT DISNEY", "DIS"] },
+  { symbol: "AMD", name: "AMD", aliases: ["ADVANCED MICRO DEVICES", "AMD"] },
   { symbol: "NFLX", name: "Netflix Inc.", aliases: ["NETFLIX", "NFLX"] },
+  { symbol: "PLTR", name: "Palantir Technologies", aliases: ["PALANTIR", "PLTR"] },
+  { symbol: "COIN", name: "Coinbase Global", aliases: ["COINBASE", "COIN"] },
+  { symbol: "DIS", name: "Walt Disney Co.", aliases: ["DISNEY", "WALT DISNEY", "DIS"] },
+  { symbol: "JPM", name: "JPMorgan Chase & Co.", aliases: ["JPMORGAN", "JP MORGAN", "JPM"] },
+  { symbol: "V", name: "Visa Inc.", aliases: ["VISA", "V"] },
+  { symbol: "WMT", name: "Walmart Inc.", aliases: ["WALMART", "WMT"] },
+  { symbol: "CRM", name: "Salesforce Inc.", aliases: ["SALESFORCE", "CRM"] },
+  { symbol: "ADBE", name: "Adobe Inc.", aliases: ["ADOBE", "ADBE"] },
+  { symbol: "INTC", name: "Intel Corporation", aliases: ["INTEL", "INTC"] },
+  { symbol: "QCOM", name: "Qualcomm Inc.", aliases: ["QUALCOMM", "QCOM"] },
+  { symbol: "UBER", name: "Uber Technologies", aliases: ["UBER"] },
 ];
 
 /**
