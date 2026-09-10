@@ -601,7 +601,7 @@ export default function ScraperPage() {
         progress: 100,
       }));
     }
-  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit, classifications, scoringConfig, newsSource]);
+  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit, classifications, scoringConfig, newsSource, placeraMode]);
 
   const handleStart = () => {
     runScraper();
@@ -640,6 +640,14 @@ export default function ScraperPage() {
     selectedKeywords.length > 0 &&
     !scraperState.isRunning &&
     (newsSource === "placera" || selectedStocks.length > 0);
+
+  const hasUsStocksSelected = selectedStocks.some((s) => {
+    const sym = s.symbol.toUpperCase();
+    return (
+      ["NVDA", "MSFT", "GOOGL", "AAPL", "AMZN", "META", "TSLA", "AMD", "NFLX", "INTC", "CRM", "ADBE", "QCOM", "UBER", "SPY", "QQQ"].includes(sym) ||
+      (!sym.includes(" ") && !sym.includes(".ST") && !sym.includes("-") && !sym.includes("_"))
+    );
+  });
 
   return (
     <main className="min-h-screen bg-background">
@@ -689,6 +697,7 @@ export default function ScraperPage() {
               onNewsSourceChange={setNewsSource}
               placeraMode={placeraMode}
               onPlaceraModeChange={setPlaceraMode}
+              hasUsStocksSelected={hasUsStocksSelected}
               scraperState={scraperState}
               onStart={handleStart}
               onPause={handlePause}

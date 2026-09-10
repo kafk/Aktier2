@@ -26,6 +26,7 @@ interface ScraperControlsProps {
   onNewsSourceChange: (source: NewsSource) => void;
   placeraMode?: PlaceraScrapeMode;
   onPlaceraModeChange?: (mode: PlaceraScrapeMode) => void;
+  hasUsStocksSelected?: boolean;
   scraperState: ScraperState;
   onStart: () => void;
   onPause: () => void;
@@ -43,6 +44,7 @@ export function ScraperControls({
   onNewsSourceChange,
   placeraMode = "both",
   onPlaceraModeChange,
+  hasUsStocksSelected = false,
   scraperState,
   onStart,
   onPause,
@@ -59,6 +61,13 @@ export function ScraperControls({
         <CardDescription>Configure and run the news scraper</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* US Stocks / Placera mismatch hint */}
+        {newsSource === "placera" && hasUsStocksSelected && (
+          <div className="p-3 bg-amber-500/15 border border-amber-500/30 rounded-md text-xs text-amber-700 dark:text-amber-300">
+            💡 <strong>US Stocks Selected:</strong> Placera.se is a Swedish news wire. For US stocks like NVIDIA, Apple, or Microsoft, select <strong>Yahoo Finance (US)</strong> or <strong>Both Sources</strong>.
+          </div>
+        )}
+
         {/* Configuration */}
         <div className="space-y-4">
           {/* News Source */}
