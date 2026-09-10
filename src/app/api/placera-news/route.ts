@@ -28,13 +28,13 @@ interface NewsResponse {
   };
 }
 
-// Rate limiting - be polite to Placera's servers
+// Rate limiting - fast interval safe for serverless
 let lastFetchTime = 0;
-const MIN_FETCH_INTERVAL_MS = 2000; // 2 seconds between requests
+const MIN_FETCH_INTERVAL_MS = 50; // 50ms between requests
 
 // Cache to avoid hammering the server
 const cache = new Map<string, { data: PlaceraNewsItem[]; timestamp: number }>();
-const CACHE_TTL_MS = 1 * 60 * 1000; // 1 minute cache (reduced for testing)
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes cache
 
 interface FetchResult {
   articles: PlaceraNewsItem[];
@@ -220,8 +220,9 @@ async function fetchSinglePage(tab: string, limit: number, offset: number = 0): 
   try {
     console.log(`Fetching Placera HTML: ${sourceUrl}`);
 
-    // Just fetch HTML directly - skip RSC which is unreliable
+    // Fetch HTML with timeout safety for serverless
     const htmlResponse = await fetch(sourceUrl, {
+      signal: AbortSignal.timeout(3500),
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -340,6 +341,7 @@ async function fetchSearchPage(keyword: string = ""): Promise<{ articles: Placer
     console.log(`Fetching Placera search page: ${searchUrl}`);
 
     const response = await fetch(searchUrl, {
+      signal: AbortSignal.timeout(3500),
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -369,7 +371,7 @@ async function fetchSearchPage(keyword: string = ""): Promise<{ articles: Placer
 async function fetchPaginatedTab(
   tab: string,
   cutoffDate: Date,
-  maxPages: number = 8
+  maxPages: number = 3
 ): Promise<{ articles: PlaceraNewsItem[]; totalBytes: number; pagesFetched: number }> {
   let allArticles: PlaceraNewsItem[] = [];
   let totalBytes = 0;
@@ -843,8 +845,8 @@ export async function GET(request: NextRequest) {
   const days = daysParam ? Math.max(1, parseInt(daysParam, 10)) : 7;
   const stocksParam = searchParams.get("stocks") || searchParams.get("q") || "";
   const maxPagesParam = searchParams.get("maxPages");
-  // Scale max pages reasonably based on days requested (e.g. 7 days -> ~6-8 pages per tab, 30 days -> ~15 pages)
-  const maxPages = maxPagesParam ? parseInt(maxPagesParam, 10) : Math.min(15, Math.max(3, Math.ceil(days * 1.5)));
+  // Cap max pages to 2-3 per tab to keep total latency well under serverless timeouts
+  const maxPages = maxPagesParam ? parseInt(maxPagesParam, 10) : Math.min(3, Math.max(1, Math.ceil(days / 3)));
 
   // Calculate cutoff date
   const cutoffDate = new Date();
