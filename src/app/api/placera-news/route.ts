@@ -432,11 +432,91 @@ async function fetchSearchPage(keyword: string = ""): Promise<{ articles: Placer
   }
 }
 
+const PLACERA_ACTION_ID = "708d3119fa17aa71cf4358f41047f07e34e278fda9";
+
+function tabToCollectionName(tab: string): string {
+  switch (tab) {
+    case "pressmeddelande":
+    case "press-releases":
+      return "press-releases";
+    case "extern-analys":
+    case "external-analysis":
+      return "external-analysis";
+    case "telegram":
+    default:
+      return "telegrams";
+  }
+}
+
+// Fetch older articles via Placera's real Next.js server action (loadMoreDocuments)
+async function fetchPlaceraServerAction(
+  tab: string,
+  offset: number
+): Promise<{ articles: PlaceraNewsItem[]; bytes: number }> {
+  const collectionName = tabToCollectionName(tab);
+  const url = `https://www.placera.se/telegram?tab=${tab}`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      signal: AbortSignal.timeout(4500),
+      headers: {
+        "Next-Action": PLACERA_ACTION_ID,
+        "Content-Type": "text/plain;charset=UTF-8",
+        "Accept": "text/x-component",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Origin": "https://www.placera.se",
+        "Referer": url,
+      },
+      body: JSON.stringify([collectionName, "PLACERA", offset]),
+    });
+
+    if (!res.ok) {
+      console.error(`Placera server action error (${res.status}) for ${tab} offset ${offset}`);
+      return { articles: [], bytes: 0 };
+    }
+
+    const text = await res.text();
+    const jsonMatch = text.match(/1:(\[[\s\S]*\])/);
+    if (!jsonMatch) {
+      console.warn(`No JSON array in server action response for ${tab} offset ${offset}`);
+      return { articles: [], bytes: text.length };
+    }
+
+    const items = JSON.parse(jsonMatch[1]);
+    const articles: PlaceraNewsItem[] = [];
+
+    for (const item of items) {
+      if (!item || !item.title) continue;
+      const coll = item.collectionPath || (tab === "pressmeddelande" ? "pressmeddelande" : tab === "extern-analys" ? "analys" : "telegram");
+      const slug = item.slug || "";
+      const link = slug ? `https://www.placera.se/${coll}/${slug}` : url;
+      const pubDate = item.createdAt || (item.formattedTimestamp ? parseSwedishDate(item.formattedTimestamp) : new Date().toISOString());
+
+      articles.push({
+        title: item.title.trim(),
+        link,
+        pubDate,
+        description: item.summary || item.body || "",
+        source: `Placera ${tab}`,
+        category: tab,
+        ticker: extractTicker(item.title),
+      });
+    }
+
+    console.log(`Server Action for ${tab} (offset=${offset}): retrieved ${articles.length} older articles`);
+    return { articles, bytes: text.length };
+  } catch (error) {
+    console.error(`Error in Placera server action for ${tab} offset ${offset}:`, error);
+    return { articles: [], bytes: 0 };
+  }
+}
+
 // Fetch paginated feed for a specific tab until cutoff date or maxPages is reached
 async function fetchPaginatedTab(
   tab: string,
   cutoffDate: Date,
-  maxPages: number = 3
+  maxPages: number = 4
 ): Promise<{ articles: PlaceraNewsItem[]; totalBytes: number; pagesFetched: number }> {
   let allArticles: PlaceraNewsItem[] = [];
   let totalBytes = 0;
@@ -447,7 +527,13 @@ async function fetchPaginatedTab(
   for (let page = 0; page < maxPages; page++) {
     pagesFetched++;
     const offset = page * limitPerPage;
-    const pageResult = await fetchSinglePage(tab, limitPerPage, offset);
+    
+    // Page 1 (offset=0): fetch initial HTML page
+    // Page 2+ (offset>=50): call Placera's real loadMoreDocuments server action!
+    const pageResult = offset === 0
+      ? await fetchSinglePage(tab, limitPerPage, 0)
+      : await fetchPlaceraServerAction(tab, offset);
+
     totalBytes += pageResult.bytes;
 
     if (!pageResult.articles || pageResult.articles.length === 0) {
