@@ -19,7 +19,12 @@ interface NewsResponse {
     htmlLength?: number;
     fetchStatus?: string;
     requestedLimit?: number;
+    mode?: string;
+    days?: number;
+    cutoff?: string;
+    totalBeforeCutoff?: number;
     note?: string;
+    [key: string]: any;
   };
 }
 
@@ -360,7 +365,104 @@ async function fetchSearchPage(keyword: string = ""): Promise<{ articles: Placer
   }
 }
 
-// Fetch articles from Placera - prioritize search page for better structure
+// Fetch paginated feed for a specific tab until cutoff date or maxPages is reached
+async function fetchPaginatedTab(
+  tab: string,
+  cutoffDate: Date,
+  maxPages: number = 8
+): Promise<{ articles: PlaceraNewsItem[]; totalBytes: number; pagesFetched: number }> {
+  let allArticles: PlaceraNewsItem[] = [];
+  let totalBytes = 0;
+  const seenLinks = new Set<string>();
+  const limitPerPage = 50;
+  let pagesFetched = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    pagesFetched++;
+    const offset = page * limitPerPage;
+    const pageResult = await fetchSinglePage(tab, limitPerPage, offset);
+    totalBytes += pageResult.bytes;
+
+    if (!pageResult.articles || pageResult.articles.length === 0) {
+      console.log(`Placera ${tab} ended at page ${page + 1}: no articles returned`);
+      break;
+    }
+
+    let pageAdded = 0;
+    let reachedCutoff = false;
+
+    for (const article of pageResult.articles) {
+      const articleDate = new Date(article.pubDate);
+      if (!isNaN(articleDate.getTime()) && articleDate < cutoffDate) {
+        reachedCutoff = true;
+      }
+
+      const linkKey = (article.link || article.title).toLowerCase();
+      if (!seenLinks.has(linkKey)) {
+        seenLinks.add(linkKey);
+        allArticles.push(article);
+        pageAdded++;
+      }
+    }
+
+    console.log(`Placera ${tab} page ${page + 1} (offset=${offset}): ${pageResult.articles.length} items, +${pageAdded} new (total: ${allArticles.length})`);
+
+    if (reachedCutoff) {
+      console.log(`Placera ${tab} reached cutoff date (${cutoffDate.toISOString().split("T")[0]}) at page ${page + 1}`);
+      break;
+    }
+
+    // Small delay between page requests
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  return { articles: allArticles, totalBytes, pagesFetched };
+}
+
+// Fetch stock-specific news via Placera search (sok.html)
+async function fetchStocksSearch(
+  stockSymbols: string[],
+  cutoffDate: Date
+): Promise<{ articles: PlaceraNewsItem[]; totalBytes: number }> {
+  let allArticles: PlaceraNewsItem[] = [];
+  let totalBytes = 0;
+  const seenLinks = new Set<string>();
+
+  for (const rawStock of stockSymbols) {
+    const stock = rawStock.trim();
+    if (!stock) continue;
+
+    console.log(`Placera Search: Searching for stock "${stock}"...`);
+    const searchResult = await fetchSearchPage(stock);
+    totalBytes += searchResult.bytes;
+
+    let added = 0;
+    for (const article of searchResult.articles) {
+      const articleDate = new Date(article.pubDate);
+      // If valid date, check against cutoff
+      if (isNaN(articleDate.getTime()) || articleDate >= cutoffDate) {
+        const linkKey = (article.link || article.title).toLowerCase();
+        if (!seenLinks.has(linkKey)) {
+          seenLinks.add(linkKey);
+          allArticles.push({
+            ...article,
+            ticker: article.ticker || stock.toUpperCase(),
+          });
+          added++;
+        }
+      }
+    }
+
+    console.log(`Placera Search for "${stock}": found ${searchResult.articles.length} total, kept +${added} within date range`);
+
+    // Polite delay between search requests
+    await new Promise(r => setTimeout(r, 250));
+  }
+
+  return { articles: allArticles, totalBytes };
+}
+
+// Fetch articles from Placera (backward compatible legacy wrapper)
 async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult> {
   const cacheKey = `${tab}-${limit}`;
   const cached = cache.get(cacheKey);
@@ -374,8 +476,7 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
   let totalBytes = 0;
   const statusParts: string[] = [];
 
-  // Primary: Use search page (sok.html) - has better structure with .searchItem
-  console.log("Fetching from search page (primary source)...");
+  // Primary: Use search page (sok.html)
   const searchResult = await fetchSearchPage();
   if (searchResult.articles.length > 0) {
     allArticles = searchResult.articles;
@@ -383,12 +484,10 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
     statusParts.push(`search: ${searchResult.articles.length}`);
   }
 
-  // Secondary: Also fetch telegram page if we need more articles
+  // Secondary: Also fetch telegram page if needed
   if (allArticles.length < limit) {
-    console.log("Also fetching telegram page for more articles...");
-    const telegramResult = await fetchSinglePage(tab, 500, 0);
+    const telegramResult = await fetchSinglePage(tab, 50, 0);
     if (telegramResult.articles.length > 0) {
-      // Merge, avoiding duplicates by link
       const existingLinks = new Set(allArticles.map(a => a.link.toLowerCase()));
       let added = 0;
       for (const article of telegramResult.articles) {
@@ -405,7 +504,6 @@ async function fetchPlaceraPage(tab: string, limit: number): Promise<FetchResult
 
   const fetchStatus = statusParts.length > 0 ? statusParts.join(", ") + `, total: ${allArticles.length}` : "0 articles";
 
-  // Update cache
   if (allArticles.length > 0) {
     cache.set(cacheKey, { data: allArticles, timestamp: Date.now() });
   }
@@ -740,55 +838,109 @@ function parseSwedishDate(dateStr: string): string {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const tab = searchParams.get("tab") || "all"; // telegram, extern-analys, pressmeddelande, or all
-  const limitParam = searchParams.get("limit");
-  const limit = limitParam ? parseInt(limitParam, 10) : 50;
+  const mode = searchParams.get("mode") || "both"; // "feed" | "search" | "both"
+  const daysParam = searchParams.get("days");
+  const days = daysParam ? Math.max(1, parseInt(daysParam, 10)) : 7;
+  const stocksParam = searchParams.get("stocks") || searchParams.get("q") || "";
+  const maxPagesParam = searchParams.get("maxPages");
+  // Scale max pages reasonably based on days requested (e.g. 7 days -> ~6-8 pages per tab, 30 days -> ~15 pages)
+  const maxPages = maxPagesParam ? parseInt(maxPagesParam, 10) : Math.min(15, Math.max(3, Math.ceil(days * 1.5)));
+
+  // Calculate cutoff date
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+
+  const stockList = stocksParam
+    ? stocksParam.split(",").map(s => s.trim()).filter(Boolean)
+    : [];
+
+  // Check cache
+  const cacheKey = `${tab}-${mode}-${days}-${stocksParam}-${maxPages}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return NextResponse.json({
+      articles: cached.data,
+      totalFetched: cached.data.length,
+      debug: {
+        fetchStatus: "cached",
+        mode,
+        days,
+        cutoff: cutoffDate.toISOString(),
+      },
+    });
+  }
 
   try {
     let allArticles: PlaceraNewsItem[] = [];
     let totalHtmlLength = 0;
     const fetchStatuses: string[] = [];
 
-    if (tab === "all") {
-      // Fetch from all three sources
-      const [telegram, analys, press] = await Promise.all([
-        fetchPlaceraPage("telegram", limit),
-        fetchPlaceraPage("extern-analys", limit),
-        fetchPlaceraPage("pressmeddelande", limit),
-      ]);
-      allArticles = [...telegram.articles, ...analys.articles, ...press.articles];
-      totalHtmlLength = telegram.htmlLength + analys.htmlLength + press.htmlLength;
-      fetchStatuses.push(`telegram:${telegram.fetchStatus}`, `analys:${analys.fetchStatus}`, `press:${press.fetchStatus}`);
-    } else {
-      const result = await fetchPlaceraPage(tab, limit);
-      allArticles = result.articles;
-      totalHtmlLength = result.htmlLength;
-      fetchStatuses.push(`${tab}:${result.fetchStatus}`);
+    // 1. Feed Pagination Mode (or Both)
+    if (mode === "feed" || mode === "both") {
+      const tabsToFetch = tab === "all" ? ["telegram", "extern-analys", "pressmeddelande"] : [tab];
+      
+      const tabResults = await Promise.all(
+        tabsToFetch.map(t => fetchPaginatedTab(t, cutoffDate, maxPages))
+      );
+
+      for (let i = 0; i < tabsToFetch.length; i++) {
+        const t = tabsToFetch[i];
+        const res = tabResults[i];
+        allArticles.push(...res.articles);
+        totalHtmlLength += res.totalBytes;
+        fetchStatuses.push(`${t}: ${res.articles.length} articles (${res.pagesFetched} pages)`);
+      }
+    }
+
+    // 2. Stock-Specific Search Mode (or Both)
+    if ((mode === "search" || mode === "both") && stockList.length > 0) {
+      const searchRes = await fetchStocksSearch(stockList, cutoffDate);
+      allArticles.push(...searchRes.articles);
+      totalHtmlLength += searchRes.totalBytes;
+      fetchStatuses.push(`stock-search: ${searchRes.articles.length} articles for ${stockList.length} stocks`);
+    } else if (mode === "search" && stockList.length === 0) {
+      // If search mode is requested but no stocks provided, fallback to default search page
+      const generalSearch = await fetchSearchPage();
+      allArticles.push(...generalSearch.articles);
+      totalHtmlLength += generalSearch.bytes;
+      fetchStatuses.push(`general-search: ${generalSearch.articles.length} articles`);
     }
 
     // Sort by date (newest first)
     allArticles.sort((a, b) => {
       const dateA = new Date(a.pubDate).getTime();
       const dateB = new Date(b.pubDate).getTime();
-      return dateB - dateA;
+      return (isNaN(dateB) ? 0 : dateB) - (isNaN(dateA) ? 0 : dateA);
     });
 
-    // Remove duplicates by title
+    // Remove duplicates by title and link
     const seen = new Set<string>();
     const uniqueArticles = allArticles.filter(article => {
-      const key = article.title.toLowerCase();
+      const key = (article.link || article.title).toLowerCase();
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
 
+    // Filter to ensure only articles within the requested cutoff date
+    const filteredArticles = uniqueArticles.filter(article => {
+      const d = new Date(article.pubDate);
+      return isNaN(d.getTime()) || d >= cutoffDate;
+    });
+
+    // Cache the result
+    cache.set(cacheKey, { data: filteredArticles, timestamp: Date.now() });
+
     const result: NewsResponse = {
-      articles: uniqueArticles,
-      totalFetched: uniqueArticles.length,
+      articles: filteredArticles,
+      totalFetched: filteredArticles.length,
       debug: {
         htmlLength: totalHtmlLength,
         fetchStatus: fetchStatuses.join(", "),
-        requestedLimit: limit,
-        note: "Placera may not honor large limit values. Check if 'ladda mer' uses a different API.",
+        mode,
+        days,
+        cutoff: cutoffDate.toISOString(),
+        totalBeforeCutoff: uniqueArticles.length,
       },
     };
 

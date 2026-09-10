@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { ScraperState } from "@/types/scraper";
 
 type NewsSource = "yahoo" | "placera" | "both";
+export type PlaceraScrapeMode = "feed" | "search" | "both";
 
 interface ScraperControlsProps {
   daysToScrape: number;
@@ -23,6 +24,8 @@ interface ScraperControlsProps {
   onNotificationLimitChange: (limit: number) => void;
   newsSource: NewsSource;
   onNewsSourceChange: (source: NewsSource) => void;
+  placeraMode?: PlaceraScrapeMode;
+  onPlaceraModeChange?: (mode: PlaceraScrapeMode) => void;
   scraperState: ScraperState;
   onStart: () => void;
   onPause: () => void;
@@ -38,6 +41,8 @@ export function ScraperControls({
   onNotificationLimitChange,
   newsSource,
   onNewsSourceChange,
+  placeraMode = "both",
+  onPlaceraModeChange,
   scraperState,
   onStart,
   onPause,
@@ -74,6 +79,27 @@ export function ScraperControls({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Placera Scraping Strategy (Shown when Placera is active) */}
+          {(newsSource === "placera" || newsSource === "both") && (
+            <div className="space-y-2">
+              <Label>Placera Scraping Strategy</Label>
+              <Select
+                value={placeraMode}
+                onValueChange={(v) => onPlaceraModeChange?.(v as PlaceraScrapeMode)}
+                disabled={isRunning}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="both">⚡ Combined (Deep Feed + Stock Search)</SelectItem>
+                  <SelectItem value="feed">🔄 Deep Feed Pagination (Full Market)</SelectItem>
+                  <SelectItem value="search">🎯 Stock-Specific Search (Targeted)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

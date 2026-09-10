@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
-import { ScraperControls } from "@/components/scraper/ScraperControls";
+import { ScraperControls, PlaceraScrapeMode } from "@/components/scraper/ScraperControls";
 import { ScraperResults } from "@/components/scraper/ScraperResults";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
@@ -232,6 +232,7 @@ export default function ScraperPage() {
   const [notificationLimit, setNotificationLimit] = useState(10);
   const [hasInitializedKeywords, setHasInitializedKeywords] = useState(false);
   const [newsSource, setNewsSource] = useLocalStorage<NewsSource>("scraper-news-source", "placera");
+  const [placeraMode, setPlaceraMode] = useLocalStorage<PlaceraScrapeMode>("scraper-placera-mode", "both");
 
   // Initialize keywords from all active classifications on first load
   useEffect(() => {
@@ -440,8 +441,10 @@ export default function ScraperPage() {
       try {
         setScraperState((prev) => ({ ...prev, progress: 5 }));
 
-        console.log("Fetching Placera news...");
-        const response = await fetch(`/api/placera-news?tab=all&limit=300`);
+        const stockSymbols = selectedStocks.map(s => s.symbol).join(",");
+        const placeraUrl = `/api/placera-news?tab=all&days=${daysToScrape}&mode=${placeraMode}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
+        console.log(`Fetching Placera news (${placeraMode} mode, ${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
+        const response = await fetch(placeraUrl);
         const data = await response.json();
 
         console.log("Placera response:", {
@@ -684,6 +687,8 @@ export default function ScraperPage() {
               onNotificationLimitChange={setNotificationLimit}
               newsSource={newsSource}
               onNewsSourceChange={setNewsSource}
+              placeraMode={placeraMode}
+              onPlaceraModeChange={setPlaceraMode}
               scraperState={scraperState}
               onStart={handleStart}
               onPause={handlePause}
