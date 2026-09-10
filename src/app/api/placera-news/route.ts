@@ -46,7 +46,7 @@ interface FetchResult {
 // Extract date from text using various patterns
 function extractDateFromText(text: string): string | null {
   // Pattern 1: "Igår, 15:15" (yesterday) or "Idag, 15:15" (today)
-  const relativeMatch = text.match(/(igår|idag),?\s*(\d{2}):(\d{2})/i);
+  const relativeMatch = text.match(/(igår|idag),?\s*(\d{1,2}):(\d{2})/i);
   if (relativeMatch) {
     const isYesterday = relativeMatch[1].toLowerCase() === "igår";
     const now = new Date();
@@ -54,11 +54,13 @@ function extractDateFromText(text: string): string | null {
       now.setDate(now.getDate() - 1);
     }
     const dateStr = now.toISOString().split("T")[0];
-    return `${dateStr} ${relativeMatch[2]}:${relativeMatch[3]}`;
+    const hour = relativeMatch[2].padStart(2, "0");
+    const minute = relativeMatch[3];
+    return `${dateStr} ${hour}:${minute}`;
   }
 
-  // Pattern 2: Swedish format "31 dec 14:30" or "31 december 14:30"
-  const swedishMatch = text.match(/(\d{1,2})\s+(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)\w*\s+(\d{2}):(\d{2})/i);
+  // Pattern 2: Swedish format "8 juni, 10:19" or "31 dec 14:30" (with or without comma)
+  const swedishMatch = text.match(/(\d{1,2})\s+(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)\w*,?\s*(\d{1,2}):(\d{2})/i);
   if (swedishMatch) {
     return swedishMatch[0];
   }
@@ -76,24 +78,33 @@ function extractDateFromText(text: string): string | null {
   }
 
   // Pattern 5: Just time "14:30" (today's articles) - look for time in context
-  const timeOnlyMatch = text.match(/["\s](\d{2}):(\d{2})["\s,]/);
+  const timeOnlyMatch = text.match(/["\s](\d{1,2}):(\d{2})["\s,]/);
   if (timeOnlyMatch) {
-    // Return the time, parseSwedishDate will handle adding today's date
-    return `${timeOnlyMatch[1]}:${timeOnlyMatch[2]}`;
+    return `${timeOnlyMatch[1].padStart(2, "0")}:${timeOnlyMatch[2]}`;
   }
 
   return null;
 }
 
-// Extract date from URL slug (e.g., "article-name-20251230" -> 2025-12-30)
+// Extract date from URL slug (e.g., "article-name-2025-06-08" or "article-name-20250608")
 function extractDateFromUrl(url: string): string | null {
+  // Look for dashed date pattern in URL: YYYY-MM-DD
+  const dashedMatch = url.match(/(\d{4})-(\d{2})-(\d{2})(?:[^0-9]|$)/);
+  if (dashedMatch) {
+    const year = parseInt(dashedMatch[1]);
+    const month = parseInt(dashedMatch[2]);
+    const day = parseInt(dashedMatch[3]);
+    if (year >= 2020 && year <= 2030 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${dashedMatch[1]}-${dashedMatch[2]}-${dashedMatch[3]}T12:00:00`;
+    }
+  }
+
   // Look for 8-digit date pattern at end of URL: YYYYMMDD
   const dateMatch = url.match(/(\d{4})(\d{2})(\d{2})(?:[^0-9]|$)/);
   if (dateMatch) {
     const year = parseInt(dateMatch[1]);
     const month = parseInt(dateMatch[2]);
     const day = parseInt(dateMatch[3]);
-    // Validate it's a reasonable date
     if (year >= 2020 && year <= 2030 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
       return `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}T12:00:00`;
     }
@@ -734,15 +745,15 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
       const $a = $(element);
       const href = $a.attr("href") || "";
       if (
-        (href.includes("/telegram/") || href.includes("/nyheter/") || href.includes("/pressmeddelande/") || href.includes("/analys/")) &&
+        (href.includes("/telegram/") || href.includes("/nyheter/") || href.includes("/pressmeddelande") || href.includes("/analys/")) &&
         !seenSearchLinks.has(href)
       ) {
         seenSearchLinks.add(href);
         const title = $a.find("h2, h3, strong").first().text().trim() || $a.text().trim();
-        const parentText = $a.parent().text().replace(/\s+/g, " ").trim();
+        const surroundingText = `${$a.text()} ${$a.parent().text()} ${$a.parent().parent().text()}`.replace(/\s+/g, " ").trim();
         const fullLink = href.startsWith("http") ? href : `https://www.placera.se${href}`;
 
-        const dateStr = extractDateFromText(parentText) || extractDateFromUrl(href);
+        const dateStr = extractDateFromText(surroundingText) || extractDateFromUrl(href);
         const pubDate = dateStr ? parseSwedishDate(dateStr) : new Date().toISOString();
 
         if (title && title.length > 5) {
@@ -750,7 +761,7 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
             title: title.replace(/\s+/g, " "),
             link: fullLink,
             pubDate,
-            description: parentText.slice(0, 200),
+            description: surroundingText.slice(0, 200),
             source: `Placera search (${sourceUrl})`,
             category: "search",
             ticker: extractTicker(title),
@@ -991,13 +1002,21 @@ function parseSwedishDate(dateStr: string): string {
   // Handle various Swedish date formats
   const now = new Date();
 
-  // Format: "2025-12-31 14:30"
-  const isoMatch = dateStr.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
-  if (isoMatch) {
-    return new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T${isoMatch[4]}:${isoMatch[5]}:00`).toISOString();
+  // Format: ISO date "2025-06-08T12:00:00" or "2025-06-08"
+  if (dateStr.includes("T") || /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
   }
 
-  // Format: "31 dec 14:30" or "31 december 14:30"
+  // Format: "2025-12-31 14:30"
+  const isoMatch = dateStr.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})/);
+  if (isoMatch) {
+    return new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T${isoMatch[4].padStart(2, "0")}:${isoMatch[5]}:00`).toISOString();
+  }
+
+  // Format: "8 juni, 10:19" or "31 dec 14:30" or "8 juni 2025 10:19"
   const monthMap: Record<string, string> = {
     jan: "01", januari: "01",
     feb: "02", februari: "02",
@@ -1013,22 +1032,31 @@ function parseSwedishDate(dateStr: string): string {
     dec: "12", december: "12",
   };
 
-  const swedishMatch = dateStr.match(/(\d{1,2})\s+(\w+)\s+(\d{2}):(\d{2})/i);
+  const swedishMatch = dateStr.match(/(\d{1,2})\s+([a-zåäö]+),?\s*(?:(\d{4})\s+)?(\d{1,2}):(\d{2})/i);
   if (swedishMatch) {
     const day = swedishMatch[1].padStart(2, "0");
     const monthName = swedishMatch[2].toLowerCase();
     const month = monthMap[monthName] || "01";
-    const hour = swedishMatch[3];
-    const minute = swedishMatch[4];
-    const year = now.getFullYear();
+    let year = swedishMatch[3] ? parseInt(swedishMatch[3], 10) : now.getFullYear();
+    const hour = swedishMatch[4].padStart(2, "0");
+    const minute = swedishMatch[5];
+    
+    // If no year specified, and month is after current month, it belongs to previous year
+    if (!swedishMatch[3]) {
+      const currentMonth = now.getMonth() + 1;
+      if (parseInt(month, 10) > currentMonth) {
+        year = now.getFullYear() - 1;
+      }
+    }
+
     return new Date(`${year}-${month}-${day}T${hour}:${minute}:00`).toISOString();
   }
 
   // Format: "14:30" (today)
-  const timeOnlyMatch = dateStr.match(/^(\d{2}):(\d{2})$/);
+  const timeOnlyMatch = dateStr.match(/^(\d{1,2}):(\d{2})$/);
   if (timeOnlyMatch) {
     const today = now.toISOString().split("T")[0];
-    return new Date(`${today}T${timeOnlyMatch[1]}:${timeOnlyMatch[2]}:00`).toISOString();
+    return new Date(`${today}T${timeOnlyMatch[1].padStart(2, "0")}:${timeOnlyMatch[2]}:00`).toISOString();
   }
 
   // Return current time if parsing fails
