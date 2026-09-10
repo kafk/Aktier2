@@ -324,10 +324,75 @@ function simpleExtractArticles(html: string, tab: string, sourceUrl: string): Pl
   return articles;
 }
 
-// Fetch from Placera search page (sok.html) - this has better structure
+// Map stock ticker symbols to effective Placera search queries
+function getStockSearchQueries(stock: string): string[] {
+  const s = stock.trim().toUpperCase();
+  const dict: Record<string, string[]> = {
+    NVDA: ["nvidia"],
+    AAPL: ["apple"],
+    MSFT: ["microsoft"],
+    GOOGL: ["google", "alphabet"],
+    GOOG: ["google", "alphabet"],
+    AMZN: ["amazon"],
+    META: ["meta", "facebook"],
+    TSLA: ["tesla"],
+    AMD: ["amd"],
+    NFLX: ["netflix"],
+    PLTR: ["palantir"],
+    COIN: ["coinbase"],
+    DIS: ["disney"],
+    INTC: ["intel"],
+    CRM: ["salesforce"],
+    ADBE: ["adobe"],
+    QCOM: ["qualcomm"],
+    UBER: ["uber"],
+    "VOLV B": ["volvo"],
+    "VOLV A": ["volvo"],
+    "ERIC B": ["ericsson"],
+    "ERIC A": ["ericsson"],
+    "INVE B": ["investor"],
+    "INVE A": ["investor"],
+    "HM B": ["h&m", "hennes"],
+    "SAAB B": ["saab"],
+    "ATCO A": ["atlas copco"],
+    "ATCO B": ["atlas copco"],
+    "SWED A": ["swedbank"],
+    "SEB A": ["seb"],
+    "SHB A": ["handelsbanken"],
+    "NDA SE": ["nordea"],
+    "NIBE B": ["nibe"],
+    "EMBRAC B": ["embracer"],
+    "ESSITY B": ["essity"],
+    "TELIA": ["telia"],
+    "TEL2 B": ["tele2"],
+    "SBB B": ["sbb"],
+    "EQT": ["eqt"],
+    "SAND": ["sandvik"],
+    "SINCH": ["sinch"],
+    "BOL": ["boliden"],
+    "EVO": ["evolution"],
+    "AZN": ["astrazeneca"],
+    "ALFA": ["alfa laval"],
+    "HEXA B": ["hexagon"],
+    "SCA B": ["sca"],
+    "SKF B": ["skf"],
+    "SKA B": ["skanska"],
+  };
+
+  if (dict[s]) {
+    return dict[s];
+  }
+  // Strip class suffix like " B", " A"
+  const clean = stock.replace(/\s+[A-Z]$/i, "").toLowerCase();
+  return [clean];
+}
+
+// Fetch from Placera search page (https://www.placera.se/search?q=...)
 async function fetchSearchPage(keyword: string = ""): Promise<{ articles: PlaceraNewsItem[]; bytes: number }> {
-  // Use empty search to get recent articles, or specific keyword
-  const searchUrl = `https://www.placera.se/placera/sok.html${keyword ? `?sok=${encodeURIComponent(keyword)}` : ""}`;
+  // Use modern search URL: https://www.placera.se/search?q=...
+  const searchUrl = keyword
+    ? `https://www.placera.se/search?q=${encodeURIComponent(keyword)}`
+    : `https://www.placera.se/telegram?tab=telegram&limit=50`;
 
   // Rate limiting
   const now = Date.now();
@@ -338,12 +403,12 @@ async function fetchSearchPage(keyword: string = ""): Promise<{ articles: Placer
   lastFetchTime = Date.now();
 
   try {
-    console.log(`Fetching Placera search page: ${searchUrl}`);
+    console.log(`Fetching Placera search: ${searchUrl}`);
 
     const response = await fetch(searchUrl, {
-      signal: AbortSignal.timeout(3500),
+      signal: AbortSignal.timeout(4000),
       headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7",
       },
@@ -355,14 +420,14 @@ async function fetchSearchPage(keyword: string = ""): Promise<{ articles: Placer
     }
 
     const html = await response.text();
-    console.log(`Search page received: ${html.length} bytes`);
+    console.log(`Search page for "${keyword}" received: ${html.length} bytes`);
 
     const articles = parseHtml(html, "search", searchUrl);
-    console.log(`Search page parsed: ${articles.length} articles`);
+    console.log(`Search page parsed for "${keyword}": ${articles.length} articles`);
 
     return { articles, bytes: html.length };
   } catch (error) {
-    console.error(`Error fetching search page:`, error);
+    console.error(`Error fetching search page for "${keyword}":`, error);
     return { articles: [], bytes: 0 };
   }
 }
@@ -415,13 +480,13 @@ async function fetchPaginatedTab(
     }
 
     // Small delay between page requests
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 100));
   }
 
   return { articles: allArticles, totalBytes, pagesFetched };
 }
 
-// Fetch stock-specific news via Placera search (sok.html)
+// Fetch stock-specific news via Placera search (placera.se/search?q=...)
 async function fetchStocksSearch(
   stockSymbols: string[],
   cutoffDate: Date
@@ -430,35 +495,45 @@ async function fetchStocksSearch(
   let totalBytes = 0;
   const seenLinks = new Set<string>();
 
+  // Map symbols to Placera search keywords
+  const queriesToRun: { keyword: string; originalSymbol: string }[] = [];
   for (const rawStock of stockSymbols) {
-    const stock = rawStock.trim();
-    if (!stock) continue;
+    const kws = getStockSearchQueries(rawStock);
+    for (const kw of kws) {
+      if (!queriesToRun.some(q => q.keyword === kw)) {
+        queriesToRun.push({ keyword: kw, originalSymbol: rawStock.toUpperCase() });
+      }
+    }
+  }
 
-    console.log(`Placera Search: Searching for stock "${stock}"...`);
-    const searchResult = await fetchSearchPage(stock);
-    totalBytes += searchResult.bytes;
+  // Run searches in parallel (fast and within serverless limits)
+  const searchPromises = queriesToRun.map(async ({ keyword, originalSymbol }) => {
+    const res = await fetchSearchPage(keyword);
+    return { keyword, originalSymbol, res };
+  });
 
+  const searchResults = await Promise.all(searchPromises);
+
+  for (const { keyword, originalSymbol, res } of searchResults) {
+    totalBytes += res.bytes;
     let added = 0;
-    for (const article of searchResult.articles) {
+
+    for (const article of res.articles) {
       const articleDate = new Date(article.pubDate);
-      // If valid date, check against cutoff
       if (isNaN(articleDate.getTime()) || articleDate >= cutoffDate) {
         const linkKey = (article.link || article.title).toLowerCase();
         if (!seenLinks.has(linkKey)) {
           seenLinks.add(linkKey);
           allArticles.push({
             ...article,
-            ticker: article.ticker || stock.toUpperCase(),
+            ticker: article.ticker || originalSymbol,
           });
           added++;
         }
       }
     }
 
-    console.log(`Placera Search for "${stock}": found ${searchResult.articles.length} total, kept +${added} within date range`);
-
-    // Polite delay between search requests
-    await new Promise(r => setTimeout(r, 250));
+    console.log(`Placera Search for "${keyword}" (${originalSymbol}): found ${res.articles.length}, kept +${added} within date range`);
   }
 
   return { articles: allArticles, totalBytes };
@@ -566,8 +641,45 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
     }
   }
 
-  // PRIORITY 2: Try the search page structure (from Placera's sok.html)
-  // This has .searchItem containers with h2, .intro, .publishedBy
+  // PRIORITY 2: Modern Placera Search Page (placera.se/search?q=...)
+  if (category === "search") {
+    const seenSearchLinks = new Set<string>();
+    $("a").each((_, element) => {
+      const $a = $(element);
+      const href = $a.attr("href") || "";
+      if (
+        (href.includes("/telegram/") || href.includes("/nyheter/") || href.includes("/pressmeddelande/") || href.includes("/analys/")) &&
+        !seenSearchLinks.has(href)
+      ) {
+        seenSearchLinks.add(href);
+        const title = $a.find("h2, h3, strong").first().text().trim() || $a.text().trim();
+        const parentText = $a.parent().text().replace(/\s+/g, " ").trim();
+        const fullLink = href.startsWith("http") ? href : `https://www.placera.se${href}`;
+
+        const dateStr = extractDateFromText(parentText) || extractDateFromUrl(href);
+        const pubDate = dateStr ? parseSwedishDate(dateStr) : new Date().toISOString();
+
+        if (title && title.length > 5) {
+          articles.push({
+            title: title.replace(/\s+/g, " "),
+            link: fullLink,
+            pubDate,
+            description: parentText.slice(0, 200),
+            source: `Placera search (${sourceUrl})`,
+            category: "search",
+            ticker: extractTicker(title),
+          });
+        }
+      }
+    });
+
+    if (articles.length > 0) {
+      console.log(`Parsed ${articles.length} articles from search page`);
+      return articles;
+    }
+  }
+
+  // PRIORITY 3: Try the legacy search page structure (.searchItem)
   const searchItems = $(".searchItem");
   if (searchItems.length > 0) {
     console.log(`Found ${searchItems.length} .searchItem elements`);
