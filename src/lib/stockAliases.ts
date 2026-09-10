@@ -254,20 +254,12 @@ export function matchStockInArticle(
     }
   }
 
-  // 3. Word-boundary or substring check in title and description
+  // 3. Word and compound check in title and description (e.g. "Google-avtal", "Nvidias", "Apple-chef")
   for (const alias of Array.from(aliasesToCheck)) {
     if (alias.length < 2) continue;
 
-    // For short aliases (<= 4 chars), require word boundary to avoid false substring matches
-    if (alias.length <= 4) {
-      const regex = new RegExp(`(^|[^a-zA-Z0-9åäöÅÄÖ])${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-zA-Z0-9åäöÅÄÖ]|$)`, "i");
-      if (regex.test(titleUpper) || regex.test(descUpper)) {
-        return true;
-      }
-    } else {
-      if (combined.includes(alias)) {
-        return true;
-      }
+    if (combined.includes(alias)) {
+      return true;
     }
   }
 

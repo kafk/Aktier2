@@ -697,7 +697,6 @@ export default function ScraperPage() {
               onNewsSourceChange={setNewsSource}
               placeraMode={placeraMode}
               onPlaceraModeChange={setPlaceraMode}
-              hasUsStocksSelected={hasUsStocksSelected}
               scraperState={scraperState}
               onStart={handleStart}
               onPause={handlePause}
