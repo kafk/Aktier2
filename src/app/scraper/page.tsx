@@ -318,16 +318,19 @@ export default function ScraperPage() {
     const analysis = analyzeSentiment(textToSearch, classifications, scoringConfig);
 
     // Fetch historical prices for stock and SPY at event, +1h, +1d
-    // DISABLED: Price fetching paused to focus on scraping
-    // Re-enable later by uncommenting the fetchAllPrices calls
-    // const [stockPrices, spyPrices] = await Promise.all([
-    //   fetchAllPrices(stockSymbol, article.pubDate),
-    //   fetchAllPrices("SPY", article.pubDate),
-    // ]);
+    let stockPrices = { priceAtEvent: null as number | null, price1h: null as number | null, price1d: null as number | null, source: "none" };
+    let spyPrices = { priceAtEvent: null as number | null, price1h: null as number | null, price1d: null as number | null, source: "none" };
 
-    // Placeholder values while price fetching is disabled
-    const stockPrices = { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
-    const spyPrices = { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
+    try {
+      const [fetchedStock, fetchedSpy] = await Promise.all([
+        fetchAllPrices(stockSymbol, article.pubDate),
+        fetchAllPrices("SPY", article.pubDate),
+      ]);
+      stockPrices = fetchedStock;
+      spyPrices = fetchedSpy;
+    } catch (priceErr) {
+      console.warn(`Price fetching failed for ${stockSymbol}:`, priceErr);
+    }
 
     // Calculate full price movement metrics
     const priceMovement = stockPrices.priceAtEvent && spyPrices.priceAtEvent
