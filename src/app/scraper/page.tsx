@@ -64,7 +64,7 @@ async function fetchHistoricalPrice(
   }
 }
 
-// Fetch all price points for an article (at event, +1h, +1d)
+// Fetch all price points for an article (at event, +1h, +1d) in one fast call
 async function fetchAllPrices(
   symbol: string,
   publishedAt: string,
@@ -75,27 +75,28 @@ async function fetchAllPrices(
   price1d: number | null;
   source: string;
 }> {
-  const eventTime = new Date(publishedAt);
-  const time1h = new Date(eventTime.getTime() + 60 * 60 * 1000); // +1 hour
-  const time1d = new Date(eventTime.getTime() + 24 * 60 * 60 * 1000); // +1 day
+  if (!symbol || symbol === "MARKET" || symbol.trim() === "") {
+    return { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
+  }
 
-  const [atEvent, at1h, at1d] = await Promise.all([
-    fetchHistoricalPrice(symbol, eventTime.toISOString(), marketDataSource),
-    fetchHistoricalPrice(symbol, time1h.toISOString(), marketDataSource),
-    fetchHistoricalPrice(symbol, time1d.toISOString(), marketDataSource),
-  ]);
-
-  // Use the source from the first successful fetch
-  const source = atEvent.source !== "error" ? atEvent.source :
-                 at1h.source !== "error" ? at1h.source :
-                 at1d.source !== "error" ? at1d.source : "none";
-
-  return {
-    priceAtEvent: atEvent.price,
-    price1h: at1h.price,
-    price1d: at1d.price,
-    source
-  };
+  try {
+    const response = await fetch(
+      `/api/stock-price?symbol=${encodeURIComponent(symbol)}&eventTimestamp=${encodeURIComponent(publishedAt)}&source=${marketDataSource}`
+    );
+    if (!response.ok) {
+      return { priceAtEvent: null, price1h: null, price1d: null, source: "error" };
+    }
+    const data = await response.json();
+    return {
+      priceAtEvent: data.priceAtEvent ?? null,
+      price1h: data.price1h ?? null,
+      price1d: data.price1d ?? null,
+      source: data.source || "none",
+    };
+  } catch (error) {
+    console.error(`Error fetching prices for ${symbol}:`, error);
+    return { priceAtEvent: null, price1h: null, price1d: null, source: "error" };
+  }
 }
 
 // Analyze sentiment based on keywords and scoring config
@@ -296,22 +297,7 @@ export default function ScraperPage() {
     setNotificationCount: (n: number) => void
   ): Promise<{ matched: boolean; newNotificationCount: number }> => {
     // Check if within date range
-    // For Placera: include recent articles (no 2-day exclusion) since it's current news
-    // For Yahoo: exclude last 2 days for price data accuracy
-    if (newsSource === "placera") {
-      // Just check if within the date range, don't exclude recent
-      const articleDate = new Date(article.pubDate);
-      const oldCutoff = new Date();
-      oldCutoff.setDate(oldCutoff.getDate() - daysToScrape);
-      if (articleDate < oldCutoff) {
-        return { matched: false, newNotificationCount: notificationCount };
-      }
-    } else if (!isWithinDays(article.pubDate, daysToScrape)) {
-      return { matched: false, newNotificationCount: notificationCount };
-    }
-
-    // Check if published during market hours (skip for Placera - Swedish market)
-    if (newsSource !== "placera" && !isDuringMarketHours(article.pubDate)) {
+    if (!isWithinDays(article.pubDate, daysToScrape)) {
       return { matched: false, newNotificationCount: notificationCount };
     }
 
