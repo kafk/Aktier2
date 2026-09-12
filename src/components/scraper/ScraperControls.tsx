@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { ScraperState } from "@/types/scraper";
+import { ScraperState, MarketDataSource } from "@/types/scraper";
 
 type NewsSource = "yahoo" | "placera" | "both";
 export type PlaceraScrapeMode = "feed" | "search" | "both";
@@ -24,6 +24,8 @@ interface ScraperControlsProps {
   onNotificationLimitChange: (limit: number) => void;
   newsSource: NewsSource;
   onNewsSourceChange: (source: NewsSource) => void;
+  marketDataSource?: MarketDataSource;
+  onMarketDataSourceChange?: (source: MarketDataSource) => void;
   placeraMode?: PlaceraScrapeMode;
   onPlaceraModeChange?: (mode: PlaceraScrapeMode) => void;
   scraperState: ScraperState;
@@ -41,6 +43,8 @@ export function ScraperControls({
   onNotificationLimitChange,
   newsSource,
   onNewsSourceChange,
+  marketDataSource = "auto",
+  onMarketDataSourceChange,
   placeraMode = "both",
   onPlaceraModeChange,
   scraperState,
@@ -61,23 +65,47 @@ export function ScraperControls({
       <CardContent className="space-y-4">
         {/* Configuration */}
         <div className="space-y-4">
-          {/* News Source */}
-          <div className="space-y-2">
-            <Label>News Source</Label>
-            <Select
-              value={newsSource}
-              onValueChange={(v) => onNewsSourceChange(v as NewsSource)}
-              disabled={isRunning}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="placera">🇸🇪 Placera.se (Swedish)</SelectItem>
-                <SelectItem value="yahoo">🇺🇸 Yahoo Finance (US)</SelectItem>
-                <SelectItem value="both">Both Sources</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* News Source */}
+            <div className="space-y-2">
+              <Label>News Source</Label>
+              <Select
+                value={newsSource}
+                onValueChange={(v) => onNewsSourceChange(v as NewsSource)}
+                disabled={isRunning}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="placera">🇸🇪 Placera.se (Swedish)</SelectItem>
+                  <SelectItem value="yahoo">🇺🇸 Yahoo Finance (US)</SelectItem>
+                  <SelectItem value="both">Both Sources</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Market Data Provider */}
+            <div className="space-y-2">
+              <Label>Market Data Provider</Label>
+              <Select
+                value={marketDataSource}
+                onValueChange={(v) => onMarketDataSourceChange?.(v as MarketDataSource)}
+                disabled={isRunning}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">⚡ Auto (Smart Fallback)</SelectItem>
+                  <SelectItem value="yahoo">🟣 Yahoo Finance (Quotes & Intraday)</SelectItem>
+                  <SelectItem value="tradingview">📈 TradingView (Global Scan & Quotes)</SelectItem>
+                  <SelectItem value="polygon">🟢 Polygon.io / Massive (US Intraday)</SelectItem>
+                  <SelectItem value="google">🔵 Google Finance (Web Quotes)</SelectItem>
+                  <SelectItem value="avanza">🇸🇪 Avanza (Swedish Market Guide)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Placera Scraping Strategy (Shown when Placera is active) */}

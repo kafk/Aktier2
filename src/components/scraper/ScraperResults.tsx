@@ -199,6 +199,9 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
               const is1dUnavailable = hasPriceAtEvent && !has1dData;
               const isExpanded = expandedId === article.id;
 
+              const isSek = article.matchedStock.endsWith(".ST") || article.matchedStock.includes(" ") || article.priceSource === "avanza";
+              const cur = isSek ? "SEK " : "$";
+
               return (
                 <div
                   key={article.id}
@@ -286,16 +289,30 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                           <span className="text-xs text-muted-foreground">
                             {formatDate(article.publishedAt)}
                             {article.priceAtEvent && (
-                              <span className="ml-1 font-mono">
-                                @ ${article.priceAtEvent.toFixed(2)}
+                              <span className="ml-1 font-mono font-medium">
+                                @ {cur}{article.priceAtEvent.toFixed(2)}
                               </span>
                             )}
                             {article.priceSource && article.priceSource !== "none" && (
-                              <span className={`ml-1 px-1 py-0.5 rounded text-[10px] ${
-                                article.priceSource === "polygon" ? "bg-green-100 text-green-700" :
-                                article.priceSource === "yahoo" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
-                              }`}>
-                                {article.priceSource === "polygon" ? "P" : article.priceSource === "yahoo" ? "Y" : "G"}
+                              <span
+                                className={`ml-1.5 px-1.5 py-0.5 rounded font-medium text-[10px] tracking-wide border ${
+                                  article.priceSource === "polygon" ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300" :
+                                  article.priceSource === "yahoo" ? "bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950 dark:text-purple-300" :
+                                  article.priceSource === "tradingview" ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300" :
+                                  article.priceSource === "avanza" ? "bg-teal-50 text-teal-700 border-teal-300 dark:bg-teal-950 dark:text-teal-300" :
+                                  "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950 dark:text-blue-300"
+                                }`}
+                                title={`Market Data Source: ${
+                                  article.priceSource === "polygon" ? "Polygon.io" :
+                                  article.priceSource === "yahoo" ? "Yahoo Finance" :
+                                  article.priceSource === "tradingview" ? "TradingView" :
+                                  article.priceSource === "avanza" ? "Avanza" : "Google Finance"
+                                }`}
+                              >
+                                {article.priceSource === "polygon" ? "Polygon" :
+                                 article.priceSource === "yahoo" ? "Yahoo" :
+                                 article.priceSource === "tradingview" ? "TradingView" :
+                                 article.priceSource === "avanza" ? "Avanza" : "Google"}
                               </span>
                             )}
                           </span>
@@ -367,18 +384,18 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
 
                           <div className="text-muted-foreground">Price at Event</div>
                           <div className="text-center font-mono">
-                            {article.priceAtEvent ? `$${article.priceAtEvent.toFixed(2)}` : "—"}
+                            {article.priceAtEvent ? `${cur}${article.priceAtEvent.toFixed(2)}` : "—"}
                           </div>
                           <div className="text-center font-mono">
-                            {article.priceAtEvent ? `$${article.priceAtEvent.toFixed(2)}` : "—"}
+                            {article.priceAtEvent ? `${cur}${article.priceAtEvent.toFixed(2)}` : "—"}
                           </div>
 
                           <div className="text-muted-foreground">Price After</div>
                           <div className="text-center font-mono">
-                            {article.price1h ? `$${article.price1h.toFixed(2)}` : "—"}
+                            {article.price1h ? `${cur}${article.price1h.toFixed(2)}` : "—"}
                           </div>
                           <div className="text-center font-mono">
-                            {article.price1d ? `$${article.price1d.toFixed(2)}` : "—"}
+                            {article.price1d ? `${cur}${article.price1d.toFixed(2)}` : "—"}
                           </div>
 
                           <div className="text-muted-foreground">Stock Move</div>

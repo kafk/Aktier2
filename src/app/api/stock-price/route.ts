@@ -400,76 +400,8 @@ async function fetchYahooPrice(symbol: string): Promise<PriceResponse> {
   }
 }
 
-// Fetch price with fallback: Avanza (Swedish) -> Polygon -> Yahoo -> Google
-async function fetchPriceWithFallback(symbol: string): Promise<PriceResponse> {
-  // For Swedish stocks, try Avanza first
-  if (isSwedishStock(symbol)) {
-    console.log(`${symbol} is Swedish, trying Avanza...`);
-    const avanzaPrice = await fetchAvanzaPrice(symbol);
-    if (avanzaPrice !== null) {
-      return {
-        symbol,
-        price: avanzaPrice,
-        previousClose: null,
-        timestamp: new Date().toISOString(),
-        marketState: "CLOSED",
-        source: "avanza",
-      };
-    }
-    console.log(`Avanza failed for ${symbol}, trying other sources...`);
-  }
-
-  // Try Polygon/Massive (most reliable for US stocks)
-  if (POLYGON_API_KEY) {
-    const polygonPrice = await fetchPolygonPrice(symbol);
-    if (polygonPrice !== null) {
-      return {
-        symbol,
-        price: polygonPrice,
-        previousClose: null,
-        timestamp: new Date().toISOString(),
-        marketState: "CLOSED",
-        source: "polygon",
-      };
-    }
-    console.log(`Polygon failed for ${symbol}, trying Yahoo...`);
-  }
-
-  // Try Yahoo
-  const yahooResult = await fetchYahooPrice(symbol);
-  if (yahooResult.price !== null) {
-    return yahooResult;
-  }
-
-  // Fallback to Google
-  console.log(`Yahoo failed for ${symbol}, trying Google Finance...`);
-  const googlePrice = await fetchGooglePrice(symbol);
-
-  if (googlePrice !== null) {
-    return {
-      symbol,
-      price: googlePrice,
-      previousClose: null,
-      timestamp: new Date().toISOString(),
-      marketState: "CLOSED",
-      source: "google",
-    };
-  }
-
-  // Both failed
-  return {
-    symbol,
-    price: null,
-    previousClose: null,
-    timestamp: new Date().toISOString(),
-    marketState: "CLOSED",
-    source: "none",
-    error: "Both Yahoo and Google Finance failed",
-  };
-}
-
-// Fetch historical price from Yahoo (Google doesn't have easy historical intraday)
-async function fetchHistoricalPrice(
+// Fetch historical price from Yahoo Finance
+async function fetchYahooHistoricalPrice(
   symbol: string,
   targetTime: Date
 ): Promise<number | null> {
@@ -516,23 +448,22 @@ async function fetchHistoricalPrice(
 
     // Return the price, or search nearby if null
     for (let offset = 0; offset <= 5; offset++) {
-      if (quotes.close[closestIndex + offset] !== null) {
+      if (quotes.close[closestIndex + offset] !== null && quotes.close[closestIndex + offset] !== undefined) {
         return quotes.close[closestIndex + offset];
       }
-      if (quotes.close[closestIndex - offset] !== null) {
+      if (quotes.close[closestIndex - offset] !== null && quotes.close[closestIndex - offset] !== undefined) {
         return quotes.close[closestIndex - offset];
       }
     }
 
     return null;
   } catch (error) {
-    console.error(`Error fetching historical price for ${symbol}:`, error);
+    console.error(`Error fetching Yahoo historical price for ${symbol}:`, error);
     return null;
   }
 }
 
-// Try to get historical price from Google Finance
-// Google has chart data embedded in their page that we can try to extract
+// Fetch historical price from Google Finance
 async function fetchGoogleHistoricalPrice(
   symbol: string,
   targetTime: Date
@@ -542,15 +473,6 @@ async function fetchGoogleHistoricalPrice(
     const now = new Date();
     const daysDiff = Math.ceil((now.getTime() - targetTime.getTime()) / (24 * 60 * 60 * 1000));
 
-    // Determine the appropriate time range for the chart
-    let range = "1D";
-    if (daysDiff <= 1) range = "1D";
-    else if (daysDiff <= 5) range = "5D";
-    else if (daysDiff <= 30) range = "1M";
-    else if (daysDiff <= 90) range = "3M";
-    else range = "1Y";
-
-    // Try to fetch Google Finance page with chart data
     const url = `https://www.google.com/finance/quote/${googleSymbol}`;
 
     const response = await fetch(url, {
@@ -568,19 +490,12 @@ async function fetchGoogleHistoricalPrice(
 
     const html = await response.text();
 
-    // Try to extract chart data from the page
-    // Google embeds price data in various formats
-
-    // Method 1: Look for data-last-price (current price as fallback)
     const currentPriceMatch = html.match(/data-last-price="([0-9.]+)"/);
     const currentPrice = currentPriceMatch ? parseFloat(currentPriceMatch[1]) : null;
 
-    // Method 2: Look for previous close price (useful for 1D calculations)
     const prevCloseMatch = html.match(/data-price-at-close="([0-9.]+)"/);
     const prevClose = prevCloseMatch ? parseFloat(prevCloseMatch[1]) : null;
 
-    // Method 3: Try to find chart data JSON (embedded in page)
-    // Look for patterns like "[[timestamp,price],...]"
     const chartDataMatch = html.match(/\[\[(\d{10,13}),([0-9.]+)\]/g);
 
     if (chartDataMatch && chartDataMatch.length > 0) {
@@ -592,7 +507,6 @@ async function fetchGoogleHistoricalPrice(
         const parts = match.match(/\[(\d+),([0-9.]+)\]/);
         if (parts) {
           let timestamp = parseInt(parts[1]);
-          // Convert to milliseconds if needed
           if (timestamp < 10000000000) timestamp *= 1000;
 
           const price = parseFloat(parts[2]);
@@ -606,20 +520,15 @@ async function fetchGoogleHistoricalPrice(
       }
 
       if (closestPrice !== null) {
-        console.log(`Google historical: found chart data price ${closestPrice} for ${symbol}`);
         return closestPrice;
       }
     }
 
-    // Method 4: If target is within last day and we have previous close, use that
     if (daysDiff <= 1 && prevClose) {
-      console.log(`Google historical: using previous close ${prevClose} for ${symbol}`);
       return prevClose;
     }
 
-    // Fallback to current price (not ideal but better than nothing)
     if (currentPrice) {
-      console.log(`Google historical: falling back to current price ${currentPrice} for ${symbol}`);
       return currentPrice;
     }
 
@@ -630,42 +539,271 @@ async function fetchGoogleHistoricalPrice(
   }
 }
 
-// Fetch historical price with fallback
-async function fetchHistoricalPriceWithFallback(
+// ============ TRADINGVIEW SCANNER ============
+function getTradingViewTicker(symbol: string): { exchange: string; ticker: string } {
+  const upper = symbol.toUpperCase().replace(".ST", "").replace("-", "_").replace(" ", "_");
+  const isSwedish = isSwedishStock(symbol);
+  if (isSwedish) {
+    return { exchange: "sweden", ticker: `OMXSTO:${upper}` };
+  }
+  return { exchange: "america", ticker: symbol.toUpperCase() };
+}
+
+async function fetchTradingViewPrice(symbol: string): Promise<number | null> {
+  try {
+    const { exchange, ticker } = getTradingViewTicker(symbol);
+    const url = `https://scanner.tradingview.com/${exchange}/scan`;
+
+    const tickers = ticker.includes(":")
+      ? [ticker]
+      : [`NASDAQ:${ticker}`, `NYSE:${ticker}`, `AMEX:${ticker}`, ticker];
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+      body: JSON.stringify({
+        symbols: { tickers },
+        columns: ["close", "change", "open", "high", "low", "volume"]
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`TradingView HTTP ${response.status} for ${symbol}`);
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.data && data.data.length > 0 && data.data[0].d && data.data[0].d.length > 0) {
+      const closePrice = data.data[0].d[0];
+      if (typeof closePrice === "number") {
+        console.log(`TradingView: ${symbol} = ${closePrice}`);
+        return closePrice;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error fetching TradingView price for ${symbol}:`, error);
+    return null;
+  }
+}
+
+// Fetch price with preferred source and fallback
+async function fetchPriceWithSource(
   symbol: string,
-  targetTime: Date
-): Promise<{ price: number | null; source: string }> {
-  // For Swedish stocks, try Avanza first
-  // Note: Avanza doesn't have historical intraday, but current price is better than nothing
-  if (isSwedishStock(symbol)) {
+  preferredSource: string = "auto"
+): Promise<PriceResponse> {
+  const tryAvanza = async () => {
     const avanzaPrice = await fetchAvanzaPrice(symbol);
     if (avanzaPrice !== null) {
-      console.log(`Using Avanza current price for ${symbol} (historical not available)`);
-      return { price: avanzaPrice, source: "avanza" };
+      return {
+        symbol,
+        price: avanzaPrice,
+        previousClose: null,
+        timestamp: new Date().toISOString(),
+        marketState: "CLOSED" as const,
+        source: "avanza",
+      };
     }
+    return null;
+  };
+
+  const tryTradingView = async () => {
+    const tvPrice = await fetchTradingViewPrice(symbol);
+    if (tvPrice !== null) {
+      return {
+        symbol,
+        price: tvPrice,
+        previousClose: null,
+        timestamp: new Date().toISOString(),
+        marketState: "CLOSED" as const,
+        source: "tradingview",
+      };
+    }
+    return null;
+  };
+
+  const tryPolygon = async () => {
+    if (!POLYGON_API_KEY) return null;
+    const polygonPrice = await fetchPolygonPrice(symbol);
+    if (polygonPrice !== null) {
+      return {
+        symbol,
+        price: polygonPrice,
+        previousClose: null,
+        timestamp: new Date().toISOString(),
+        marketState: "CLOSED" as const,
+        source: "polygon",
+      };
+    }
+    return null;
+  };
+
+  const tryYahoo = async () => {
+    const yahooResult = await fetchYahooPrice(symbol);
+    if (yahooResult.price !== null) {
+      return yahooResult;
+    }
+    return null;
+  };
+
+  const tryGoogle = async () => {
+    const googlePrice = await fetchGooglePrice(symbol);
+    if (googlePrice !== null) {
+      return {
+        symbol,
+        price: googlePrice,
+        previousClose: null,
+        timestamp: new Date().toISOString(),
+        marketState: "CLOSED" as const,
+        source: "google",
+      };
+    }
+    return null;
+  };
+
+  // If specific source preferred, try it first
+  if (preferredSource === "avanza") {
+    const res = await tryAvanza();
+    if (res) return res;
+  } else if (preferredSource === "tradingview") {
+    const res = await tryTradingView();
+    if (res) return res;
+  } else if (preferredSource === "polygon") {
+    const res = await tryPolygon();
+    if (res) return res;
+  } else if (preferredSource === "yahoo") {
+    const res = await tryYahoo();
+    if (res) return res;
+  } else if (preferredSource === "google") {
+    const res = await tryGoogle();
+    if (res) return res;
   }
 
-  // Try Polygon/Massive (most reliable for US stocks with intraday data)
-  if (POLYGON_API_KEY) {
+  // If preferred source was auto (or preferred source failed, fallback chain)
+  if (isSwedishStock(symbol)) {
+    const avanzaRes = await tryAvanza();
+    if (avanzaRes) return avanzaRes;
+  }
+
+  // Next try TradingView
+  const tvRes = await tryTradingView();
+  if (tvRes) return tvRes;
+
+  // Next try Polygon
+  const polygonRes = await tryPolygon();
+  if (polygonRes) return polygonRes;
+
+  // Next try Yahoo
+  const yahooRes = await tryYahoo();
+  if (yahooRes) return yahooRes;
+
+  // Next try Google
+  const googleRes = await tryGoogle();
+  if (googleRes) return googleRes;
+
+  return {
+    symbol,
+    price: null,
+    previousClose: null,
+    timestamp: new Date().toISOString(),
+    marketState: "CLOSED",
+    source: "none",
+    error: "All market data providers failed to return a price",
+  };
+}
+
+// Fetch historical price with preferred source and fallback
+async function fetchHistoricalPriceWithFallback(
+  symbol: string,
+  targetTime: Date,
+  preferredSource: string = "auto"
+): Promise<{ price: number | null; source: string }> {
+  const tryAvanza = async () => {
+    const avanzaPrice = await fetchAvanzaPrice(symbol);
+    if (avanzaPrice !== null) {
+      console.log(`Using Avanza current quote for ${symbol}`);
+      return { price: avanzaPrice, source: "avanza" };
+    }
+    return null;
+  };
+
+  const tryTradingView = async () => {
+    const tvPrice = await fetchTradingViewPrice(symbol);
+    if (tvPrice !== null) {
+      console.log(`Using TradingView quote for ${symbol}`);
+      return { price: tvPrice, source: "tradingview" };
+    }
+    return null;
+  };
+
+  const tryPolygon = async () => {
+    if (!POLYGON_API_KEY) return null;
     const polygonPrice = await fetchPolygonHistoricalPrice(symbol, targetTime);
     if (polygonPrice !== null) {
       return { price: polygonPrice, source: "polygon" };
     }
-    console.log(`Polygon historical failed for ${symbol}, trying Yahoo...`);
+    return null;
+  };
+
+  const tryYahoo = async () => {
+    const yahooPrice = await fetchYahooHistoricalPrice(symbol, targetTime);
+    if (yahooPrice !== null) {
+      return { price: yahooPrice, source: "yahoo" };
+    }
+    return null;
+  };
+
+  const tryGoogle = async () => {
+    const googlePrice = await fetchGoogleHistoricalPrice(symbol, targetTime);
+    if (googlePrice !== null) {
+      return { price: googlePrice, source: "google" };
+    }
+    return null;
+  };
+
+  // If user requested a specific source, attempt it first
+  if (preferredSource === "avanza") {
+    const res = await tryAvanza();
+    if (res) return res;
+  } else if (preferredSource === "tradingview") {
+    const res = await tryTradingView();
+    if (res) return res;
+  } else if (preferredSource === "polygon") {
+    const res = await tryPolygon();
+    if (res) return res;
+  } else if (preferredSource === "yahoo") {
+    const res = await tryYahoo();
+    if (res) return res;
+  } else if (preferredSource === "google") {
+    const res = await tryGoogle();
+    if (res) return res;
   }
 
-  // Try Yahoo (has decent historical data)
-  const yahooPrice = await fetchHistoricalPrice(symbol, targetTime);
-  if (yahooPrice !== null) {
-    return { price: yahooPrice, source: "yahoo" };
+  // Automatic smart fallback:
+  // For Swedish stocks, try Avanza first
+  if (isSwedishStock(symbol)) {
+    const avanzaRes = await tryAvanza();
+    if (avanzaRes) return avanzaRes;
   }
 
-  // Fallback to Google (current price only as approximation)
-  console.log(`Yahoo historical failed for ${symbol}, trying Google...`);
-  const googlePrice = await fetchGoogleHistoricalPrice(symbol, targetTime);
-  if (googlePrice !== null) {
-    return { price: googlePrice, source: "google" };
-  }
+  // Try Polygon (most reliable for US intraday)
+  const polygonRes = await tryPolygon();
+  if (polygonRes) return polygonRes;
+
+  // Try Yahoo
+  const yahooRes = await tryYahoo();
+  if (yahooRes) return yahooRes;
+
+  // Try TradingView
+  const tvRes = await tryTradingView();
+  if (tvRes) return tvRes;
+
+  // Fallback to Google
+  const googleRes = await tryGoogle();
+  if (googleRes) return googleRes;
 
   return { price: null, source: "none" };
 }
@@ -674,7 +812,7 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const symbol = searchParams.get("symbol");
   const timestamp = searchParams.get("timestamp");
-  const source = searchParams.get("source"); // Optional: force specific source
+  const source = searchParams.get("source") || "auto"; // "auto" | "yahoo" | "polygon" | "google" | "avanza"
 
   if (!symbol) {
     return NextResponse.json(
@@ -686,7 +824,7 @@ export async function GET(request: NextRequest) {
   // If timestamp provided, fetch historical price
   if (timestamp) {
     const targetTime = new Date(timestamp);
-    const result = await fetchHistoricalPriceWithFallback(symbol, targetTime);
+    const result = await fetchHistoricalPriceWithFallback(symbol, targetTime, source);
     return NextResponse.json({
       symbol,
       price: result.price,
@@ -697,23 +835,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Fetch current price
-  if (source === "google") {
-    const price = await fetchGooglePrice(symbol);
-    return NextResponse.json({
-      symbol,
-      price,
-      timestamp: new Date().toISOString(),
-      source: "google",
-    });
-  }
-
-  if (source === "yahoo") {
-    const result = await fetchYahooPrice(symbol);
-    return NextResponse.json(result);
-  }
-
-  // Default: try both with fallback
-  const result = await fetchPriceWithFallback(symbol);
+  const result = await fetchPriceWithSource(symbol, source);
   return NextResponse.json(result);
 }
 
@@ -721,7 +843,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { symbols } = body as { symbols: string[] };
+    const { symbols, source = "auto" } = body as { symbols: string[]; source?: string };
 
     if (!symbols || !Array.isArray(symbols)) {
       return NextResponse.json(
@@ -731,7 +853,7 @@ export async function POST(request: NextRequest) {
     }
 
     const results = await Promise.all(
-      symbols.map((symbol) => fetchPriceWithFallback(symbol))
+      symbols.map((symbol) => fetchPriceWithSource(symbol, source))
     );
 
     return NextResponse.json({ prices: results });

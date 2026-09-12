@@ -11,6 +11,7 @@ import {
   ScraperKeyword,
   ScraperState,
   NewsArticle,
+  MarketDataSource,
 } from "@/types/scraper";
 import {
   Classification,
@@ -45,10 +46,16 @@ interface PlaceraNewsItem {
 
 type NewsSource = "yahoo" | "placera" | "both";
 
-// Fetch historical stock price at a specific time
-async function fetchHistoricalPrice(symbol: string, timestamp: string): Promise<{ price: number | null; source: string }> {
+// Fetch historical stock price at a specific time with market data source
+async function fetchHistoricalPrice(
+  symbol: string,
+  timestamp: string,
+  marketDataSource: MarketDataSource = "auto"
+): Promise<{ price: number | null; source: string }> {
   try {
-    const response = await fetch(`/api/stock-price?symbol=${symbol}&timestamp=${encodeURIComponent(timestamp)}`);
+    const response = await fetch(
+      `/api/stock-price?symbol=${symbol}&timestamp=${encodeURIComponent(timestamp)}&source=${marketDataSource}`
+    );
     const data = await response.json();
     return { price: data.price || null, source: data.source || "unknown" };
   } catch (error) {
@@ -60,7 +67,8 @@ async function fetchHistoricalPrice(symbol: string, timestamp: string): Promise<
 // Fetch all price points for an article (at event, +1h, +1d)
 async function fetchAllPrices(
   symbol: string,
-  publishedAt: string
+  publishedAt: string,
+  marketDataSource: MarketDataSource = "auto"
 ): Promise<{
   priceAtEvent: number | null;
   price1h: number | null;
@@ -72,9 +80,9 @@ async function fetchAllPrices(
   const time1d = new Date(eventTime.getTime() + 24 * 60 * 60 * 1000); // +1 day
 
   const [atEvent, at1h, at1d] = await Promise.all([
-    fetchHistoricalPrice(symbol, eventTime.toISOString()),
-    fetchHistoricalPrice(symbol, time1h.toISOString()),
-    fetchHistoricalPrice(symbol, time1d.toISOString()),
+    fetchHistoricalPrice(symbol, eventTime.toISOString(), marketDataSource),
+    fetchHistoricalPrice(symbol, time1h.toISOString(), marketDataSource),
+    fetchHistoricalPrice(symbol, time1d.toISOString(), marketDataSource),
   ]);
 
   // Use the source from the first successful fetch
@@ -232,6 +240,7 @@ export default function ScraperPage() {
   const [notificationLimit, setNotificationLimit] = useState(10);
   const [hasInitializedKeywords, setHasInitializedKeywords] = useState(false);
   const [newsSource, setNewsSource] = useLocalStorage<NewsSource>("scraper-news-source", "placera");
+  const [marketDataSource, setMarketDataSource] = useLocalStorage<MarketDataSource>("scraper-market-data-source", "auto");
   const [placeraMode, setPlaceraMode] = useLocalStorage<PlaceraScrapeMode>("scraper-placera-mode", "both");
 
   // Initialize keywords from all active classifications on first load
@@ -323,8 +332,8 @@ export default function ScraperPage() {
 
     try {
       const [fetchedStock, fetchedSpy] = await Promise.all([
-        fetchAllPrices(stockSymbol, article.pubDate),
-        fetchAllPrices("SPY", article.pubDate),
+        fetchAllPrices(stockSymbol, article.pubDate, marketDataSource),
+        fetchAllPrices("SPY", article.pubDate, marketDataSource),
       ]);
       stockPrices = fetchedStock;
       spyPrices = fetchedSpy;
@@ -382,7 +391,7 @@ export default function ScraperPage() {
       baseline1h: DEFAULT_BASELINE.baseline1h,
       baseline1d: DEFAULT_BASELINE.baseline1d,
       priceTrackingStatus,
-      priceSource: stockPrices.source as "polygon" | "yahoo" | "google" | "none",
+      priceSource: (stockPrices.source as NewsArticle["priceSource"]) || "none",
     };
 
     const newCount = notificationCount + 1;
@@ -698,6 +707,8 @@ export default function ScraperPage() {
               onNotificationLimitChange={setNotificationLimit}
               newsSource={newsSource}
               onNewsSourceChange={setNewsSource}
+              marketDataSource={marketDataSource}
+              onMarketDataSourceChange={setMarketDataSource}
               placeraMode={placeraMode}
               onPlaceraModeChange={setPlaceraMode}
               scraperState={scraperState}
