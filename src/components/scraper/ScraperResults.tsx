@@ -325,14 +325,18 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                               </span>
                             )}
                           </span>
-                          <div className="flex gap-1">
+                          <div className="flex gap-1 items-center flex-wrap">
                             {article.matchedKeywords.slice(0, 2).map((kw, i) => (
                               <Badge key={i} variant="outline" className="text-xs">
                                 {kw}
                               </Badge>
                             ))}
                             {article.matchedKeywords.length > 2 && (
-                              <Badge variant="secondary" className="text-xs">
+                              <Badge
+                                variant="secondary"
+                                className="text-xs cursor-help"
+                                title={`Additional matched keywords: ${article.matchedKeywords.slice(2).join(", ")}`}
+                              >
                                 +{article.matchedKeywords.length - 2}
                               </Badge>
                             )}
