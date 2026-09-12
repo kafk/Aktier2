@@ -355,67 +355,81 @@ async function fetchGooglePrice(symbol: string): Promise<number | null> {
   }
 }
 
+// Normalize symbol for Yahoo Finance (Swedish stocks need .ST suffix)
+function getYahooSymbol(symbol: string): string {
+  const clean = symbol.trim().toUpperCase();
+  if (clean.endsWith(".ST")) return clean;
+  const norm = clean.replace(/\s+/g, "-").replace(/_/g, "-");
+  if (isSwedishStock(symbol) || AVANZA_ORDERBOOK_IDS[norm] !== undefined || AVANZA_ORDERBOOK_IDS[clean] !== undefined) {
+    return `${norm}.ST`;
+  }
+  return clean;
+}
+
 // Fetch current price from Yahoo Finance
 async function fetchYahooPrice(symbol: string): Promise<PriceResponse> {
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d`;
+  const yahooSymbol = getYahooSymbol(symbol);
+  const symbolsToTry = [yahooSymbol];
+  if (yahooSymbol !== symbol.trim().toUpperCase()) {
+    symbolsToTry.push(symbol.trim().toUpperCase());
+  }
 
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-      next: { revalidate: 60 },
-    });
+  for (const sym of symbolsToTry) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1m&range=1d`;
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+        next: { revalidate: 60 },
+      });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+      if (!response.ok) continue;
 
-    const data = await response.json();
+      const data = await response.json();
+      if (data.chart?.error) continue;
 
-    if (data.chart?.error) {
-      throw new Error(data.chart.error.description || "Unknown error");
-    }
+      const result = data.chart?.result?.[0];
+      if (!result) continue;
 
-    const result = data.chart?.result?.[0];
-    if (!result) {
-      throw new Error("No data returned");
-    }
+      const meta = result.meta;
+      const quotes = result.indicators?.quote?.[0];
 
-    const meta = result.meta;
-    const quotes = result.indicators?.quote?.[0];
+      let currentPrice = meta.regularMarketPrice;
 
-    let currentPrice = meta.regularMarketPrice;
-
-    if (!currentPrice && quotes?.close) {
-      for (let i = quotes.close.length - 1; i >= 0; i--) {
-        if (quotes.close[i] !== null) {
-          currentPrice = quotes.close[i];
-          break;
+      if (!currentPrice && quotes?.close) {
+        for (let i = quotes.close.length - 1; i >= 0; i--) {
+          if (quotes.close[i] !== null) {
+            currentPrice = quotes.close[i];
+            break;
+          }
         }
       }
-    }
 
-    return {
-      symbol: meta.symbol || symbol,
-      price: currentPrice || null,
-      previousClose: meta.previousClose || null,
-      timestamp: new Date().toISOString(),
-      marketState: meta.marketState || "CLOSED",
-      source: "yahoo",
-    };
-  } catch (error) {
-    console.error(`Yahoo Finance error for ${symbol}:`, error);
-    return {
-      symbol,
-      price: null,
-      previousClose: null,
-      timestamp: new Date().toISOString(),
-      marketState: "CLOSED",
-      source: "yahoo",
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
+      if (currentPrice) {
+        return {
+          symbol: meta.symbol || sym,
+          price: currentPrice,
+          previousClose: meta.previousClose || null,
+          timestamp: new Date().toISOString(),
+          marketState: meta.marketState || "CLOSED",
+          source: "yahoo",
+        };
+      }
+    } catch (error) {
+      console.error(`Yahoo Finance error for ${sym}:`, error);
+    }
   }
+
+  return {
+    symbol,
+    price: null,
+    previousClose: null,
+    timestamp: new Date().toISOString(),
+    marketState: "CLOSED",
+    source: "yahoo",
+    error: "No price returned from Yahoo",
+  };
 }
 
 // Cache for Yahoo chart data (10 min cache to avoid rate limits)
@@ -428,41 +442,45 @@ const yahooChartCache = new Map<string, YahooChartCacheEntry>();
 const YAHOO_CHART_TTL = 10 * 60 * 1000; // 10 minutes
 
 async function getYahooChartData(symbol: string, range: string): Promise<YahooChartCacheEntry | null> {
-  const cleanSymbol = symbol.trim();
-  const cacheKey = `${cleanSymbol.toUpperCase()}-${range}`;
+  const yahooSymbol = getYahooSymbol(symbol);
+  const cacheKey = `${yahooSymbol}-${range}`;
   const cached = yahooChartCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < YAHOO_CHART_TTL) {
     return cached;
   }
 
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}?interval=5m&range=${range}`;
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-    });
-
-    if (!response.ok) {
-      console.error(`Yahoo chart HTTP ${response.status} for ${symbol}`);
-      return null;
-    }
-
-    const data = await response.json();
-    const result = data.chart?.result?.[0];
-    if (!result || !result.timestamp || !result.indicators?.quote?.[0]?.close) return null;
-
-    const entry: YahooChartCacheEntry = {
-      timestamps: result.timestamp,
-      closes: result.indicators.quote[0].close,
-      fetchedAt: Date.now(),
-    };
-    yahooChartCache.set(cacheKey, entry);
-    return entry;
-  } catch (err) {
-    console.error(`Error fetching Yahoo chart for ${symbol}:`, err);
-    return null;
+  const symbolsToTry = [yahooSymbol];
+  if (yahooSymbol !== symbol.trim().toUpperCase()) {
+    symbolsToTry.push(symbol.trim().toUpperCase());
   }
+
+  for (const sym of symbolsToTry) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&range=${range}`;
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      const result = data.chart?.result?.[0];
+      if (!result || !result.timestamp || !result.indicators?.quote?.[0]?.close) continue;
+
+      const entry: YahooChartCacheEntry = {
+        timestamps: result.timestamp,
+        closes: result.indicators.quote[0].close,
+        fetchedAt: Date.now(),
+      };
+      yahooChartCache.set(cacheKey, entry);
+      return entry;
+    } catch (err) {
+      console.error(`Error fetching Yahoo chart for ${sym}:`, err);
+    }
+  }
+  return null;
 }
 
 function findClosestPriceInChart(chart: YahooChartCacheEntry, targetSec: number): number | null {
@@ -509,7 +527,7 @@ async function fetchYahooHistoricalPrice(
 async function fetchEventPricePoints(
   symbol: string,
   eventTime: Date,
-  source: string = "auto"
+  preferredSource: string = "auto"
 ): Promise<{
   priceAtEvent: number | null;
   price1h: number | null;
@@ -520,14 +538,6 @@ async function fetchEventPricePoints(
     return { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
   }
 
-  // Swedish stock handling
-  if (isSwedishStock(symbol)) {
-    const avanzaPrice = await fetchAvanzaPrice(symbol);
-    if (avanzaPrice !== null) {
-      return { priceAtEvent: avanzaPrice, price1h: null, price1d: null, source: "avanza" };
-    }
-  }
-
   const nowSec = Math.floor(Date.now() / 1000);
   const eventSec = Math.floor(eventTime.getTime() / 1000);
   const time1hSec = eventSec + 3600;
@@ -536,42 +546,115 @@ async function fetchEventPricePoints(
   const daysDiff = Math.ceil((nowSec - eventSec) / (24 * 60 * 60));
   const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : daysDiff <= 30 ? "1mo" : "3mo";
 
-  // 1. Try Yahoo cached chart (extracts all 3 points from the same chart)
-  const chart = await getYahooChartData(symbol, range);
-  if (chart) {
-    const atEvent = findClosestPriceInChart(chart, eventSec);
-    const at1h = nowSec >= time1hSec ? findClosestPriceInChart(chart, time1hSec) : null;
-    const at1d = nowSec >= time1dSec ? findClosestPriceInChart(chart, time1dSec) : null;
-    if (atEvent !== null) {
+  const tryYahoo = async () => {
+    const chart = await getYahooChartData(symbol, range);
+    if (chart) {
+      const atEvent = findClosestPriceInChart(chart, eventSec);
+      const at1h = nowSec >= time1hSec ? findClosestPriceInChart(chart, time1hSec) : null;
+      const at1d = nowSec >= time1dSec ? findClosestPriceInChart(chart, time1dSec) : null;
+      if (atEvent !== null) {
+        return {
+          priceAtEvent: atEvent,
+          price1h: at1h,
+          price1d: at1d,
+          source: "yahoo",
+        };
+      }
+    }
+    const yp = await fetchYahooPrice(symbol);
+    if (yp.price !== null) {
+      return { priceAtEvent: yp.price, price1h: null, price1d: null, source: "yahoo" };
+    }
+    return null;
+  };
+
+  const tryTradingView = async () => {
+    const tvPrice = await fetchTradingViewPrice(symbol);
+    if (tvPrice !== null) {
       return {
-        priceAtEvent: atEvent,
-        price1h: at1h,
-        price1d: at1d,
-        source: "yahoo",
+        priceAtEvent: tvPrice,
+        price1h: null,
+        price1d: null,
+        source: "tradingview",
       };
     }
+    return null;
+  };
+
+  const tryAvanza = async () => {
+    if (isSwedishStock(symbol)) {
+      const avanzaPrice = await fetchAvanzaPrice(symbol);
+      if (avanzaPrice !== null) {
+        return { priceAtEvent: avanzaPrice, price1h: null, price1d: null, source: "avanza" };
+      }
+    }
+    return null;
+  };
+
+  const tryPolygon = async () => {
+    if (!POLYGON_API_KEY) return null;
+    const pPrice = await fetchPolygonPrice(symbol);
+    if (pPrice !== null) {
+      return { priceAtEvent: pPrice, price1h: null, price1d: null, source: "polygon" };
+    }
+    return null;
+  };
+
+  const tryGoogle = async () => {
+    const gPrice = await fetchGooglePrice(symbol);
+    if (gPrice !== null) {
+      return {
+        priceAtEvent: gPrice,
+        price1h: null,
+        price1d: null,
+        source: "google",
+      };
+    }
+    return null;
+  };
+
+  // 1. If a specific source was preferred by user, try it FIRST:
+  if (preferredSource === "yahoo") {
+    const res = await tryYahoo();
+    if (res) return res;
+  } else if (preferredSource === "tradingview") {
+    const res = await tryTradingView();
+    if (res) return res;
+  } else if (preferredSource === "avanza") {
+    const res = await tryAvanza();
+    if (res) return res;
+  } else if (preferredSource === "polygon") {
+    const res = await tryPolygon();
+    if (res) return res;
+  } else if (preferredSource === "google") {
+    const res = await tryGoogle();
+    if (res) return res;
   }
 
-  // 2. Try TradingView
-  const tvPrice = await fetchTradingViewPrice(symbol);
-  if (tvPrice !== null) {
-    return {
-      priceAtEvent: tvPrice,
-      price1h: null,
-      price1d: null,
-      source: "tradingview",
-    };
+  // 2. Fallbacks:
+  if (preferredSource !== "yahoo") {
+    const yahooRes = await tryYahoo();
+    if (yahooRes) return yahooRes;
   }
 
-  // 3. Fallback to Google quote
-  const gPrice = await fetchGooglePrice(symbol);
-  if (gPrice !== null) {
-    return {
-      priceAtEvent: gPrice,
-      price1h: null,
-      price1d: null,
-      source: "google",
-    };
+  if (isSwedishStock(symbol) && preferredSource !== "avanza") {
+    const avanzaRes = await tryAvanza();
+    if (avanzaRes) return avanzaRes;
+  }
+
+  if (preferredSource !== "tradingview") {
+    const tvRes = await tryTradingView();
+    if (tvRes) return tvRes;
+  }
+
+  if (preferredSource !== "polygon") {
+    const polyRes = await tryPolygon();
+    if (polyRes) return polyRes;
+  }
+
+  if (preferredSource !== "google") {
+    const gRes = await tryGoogle();
+    if (gRes) return gRes;
   }
 
   return { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
