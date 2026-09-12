@@ -604,25 +604,46 @@ async function fetchYahooHistoricalPrice(
   return findClosestPriceInChart(chart, targetSec);
 }
 
-// Fetch all price points for an event (atEvent, +1h, +1d) in one fast call
+// Fetch all price points for an event (atEvent, 10m, 15m, 30m, 1h, 2h, 1d, 1w) in one fast call
 async function fetchEventPricePoints(
   symbol: string,
   eventTime: Date,
   preferredSource: string = "auto"
 ): Promise<{
   priceAtEvent: number | null;
+  price10m: number | null;
+  price15m: number | null;
+  price30m: number | null;
   price1h: number | null;
+  price2h: number | null;
   price1d: number | null;
+  price1w: number | null;
   source: string;
 }> {
   if (!symbol || symbol.toUpperCase() === "MARKET") {
-    return { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
+    return {
+      priceAtEvent: null,
+      price10m: null,
+      price15m: null,
+      price30m: null,
+      price1h: null,
+      price2h: null,
+      price1d: null,
+      price1w: null,
+      source: "none",
+    };
   }
 
   const nowSec = Math.floor(Date.now() / 1000);
   const eventSec = Math.floor(eventTime.getTime() / 1000);
+
+  const time10mSec = eventSec + 600;
+  const time15mSec = eventSec + 900;
+  const time30mSec = eventSec + 1800;
   const time1hSec = eventSec + 3600;
+  const time2hSec = eventSec + 7200;
   const time1dSec = eventSec + 86400;
+  const time1wSec = eventSec + 7 * 86400;
 
   const daysDiff = Math.ceil((nowSec - eventSec) / (24 * 60 * 60));
   const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : daysDiff <= 30 ? "1mo" : "3mo";
@@ -631,20 +652,41 @@ async function fetchEventPricePoints(
     const chart = await getYahooChartData(symbol, range);
     if (chart) {
       const atEvent = findClosestPriceInChart(chart, eventSec);
+      const at10m = nowSec >= time10mSec ? findClosestPriceInChart(chart, time10mSec) : null;
+      const at15m = nowSec >= time15mSec ? findClosestPriceInChart(chart, time15mSec) : null;
+      const at30m = nowSec >= time30mSec ? findClosestPriceInChart(chart, time30mSec) : null;
       const at1h = nowSec >= time1hSec ? findClosestPriceInChart(chart, time1hSec) : null;
+      const at2h = nowSec >= time2hSec ? findClosestPriceInChart(chart, time2hSec) : null;
       const at1d = nowSec >= time1dSec ? findClosestPriceInChart(chart, time1dSec) : null;
+      const at1w = nowSec >= time1wSec ? findClosestPriceInChart(chart, time1wSec) : null;
+
       if (atEvent !== null) {
         return {
           priceAtEvent: atEvent,
+          price10m: at10m,
+          price15m: at15m,
+          price30m: at30m,
           price1h: at1h,
+          price2h: at2h,
           price1d: at1d,
+          price1w: at1w,
           source: "yahoo",
         };
       }
     }
     const yp = await fetchYahooPrice(symbol);
     if (yp.price !== null) {
-      return { priceAtEvent: yp.price, price1h: null, price1d: null, source: "yahoo" };
+      return {
+        priceAtEvent: yp.price,
+        price10m: null,
+        price15m: null,
+        price30m: null,
+        price1h: null,
+        price2h: null,
+        price1d: null,
+        price1w: null,
+        source: "yahoo",
+      };
     }
     return null;
   };
@@ -654,8 +696,13 @@ async function fetchEventPricePoints(
     if (tvPrice !== null) {
       return {
         priceAtEvent: tvPrice,
+        price10m: null,
+        price15m: null,
+        price30m: null,
         price1h: null,
+        price2h: null,
         price1d: null,
+        price1w: null,
         source: "tradingview",
       };
     }
@@ -666,7 +713,17 @@ async function fetchEventPricePoints(
     if (isSwedishStock(symbol)) {
       const avanzaPrice = await fetchAvanzaPrice(symbol);
       if (avanzaPrice !== null) {
-        return { priceAtEvent: avanzaPrice, price1h: null, price1d: null, source: "avanza" };
+        return {
+          priceAtEvent: avanzaPrice,
+          price10m: null,
+          price15m: null,
+          price30m: null,
+          price1h: null,
+          price2h: null,
+          price1d: null,
+          price1w: null,
+          source: "avanza",
+        };
       }
     }
     return null;
@@ -676,7 +733,17 @@ async function fetchEventPricePoints(
     if (!POLYGON_API_KEY) return null;
     const pPrice = await fetchPolygonPrice(symbol);
     if (pPrice !== null) {
-      return { priceAtEvent: pPrice, price1h: null, price1d: null, source: "polygon" };
+      return {
+        priceAtEvent: pPrice,
+        price10m: null,
+        price15m: null,
+        price30m: null,
+        price1h: null,
+        price2h: null,
+        price1d: null,
+        price1w: null,
+        source: "polygon",
+      };
     }
     return null;
   };
@@ -686,8 +753,13 @@ async function fetchEventPricePoints(
     if (gPrice !== null) {
       return {
         priceAtEvent: gPrice,
+        price10m: null,
+        price15m: null,
+        price30m: null,
         price1h: null,
+        price2h: null,
         price1d: null,
+        price1w: null,
         source: "google",
       };
     }
@@ -738,8 +810,19 @@ async function fetchEventPricePoints(
     if (gRes) return gRes;
   }
 
-  return { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
+  return {
+    priceAtEvent: null,
+    price10m: null,
+    price15m: null,
+    price30m: null,
+    price1h: null,
+    price2h: null,
+    price1d: null,
+    price1w: null,
+    source: "none",
+  };
 }
+
 
 // Fetch historical price from Google Finance
 async function fetchGoogleHistoricalPrice(
@@ -1100,7 +1183,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // If eventTimestamp provided, fetch all 3 points (atEvent, 1h, 1d) in one fast call
+  // If eventTimestamp provided, fetch all horizons (atEvent, 10m, 15m, 30m, 1h, 2h, 1d, 1w) in one fast call
   if (eventTimestamp) {
     const targetTime = new Date(eventTimestamp);
     const result = await fetchEventPricePoints(symbol, targetTime, source);
@@ -1108,8 +1191,13 @@ export async function GET(request: NextRequest) {
       symbol,
       eventTimestamp,
       priceAtEvent: result.priceAtEvent,
+      price10m: result.price10m,
+      price15m: result.price15m,
+      price30m: result.price30m,
       price1h: result.price1h,
+      price2h: result.price2h,
       price1d: result.price1d,
+      price1w: result.price1w,
       source: result.source,
     });
   }

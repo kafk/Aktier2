@@ -34,10 +34,24 @@ export interface NewsArticle {
   eventType?: string;
   eventCode?: string;
 
-  // Price tracking (all optional, populated over time)
+  // Price tracking across multi-horizon (10m, 15m, 30m, 1h, 2h, 1d, 1w)
   priceAtEvent?: number;
+  price10m?: number | null;
+  price15m?: number | null;
+  price30m?: number | null;
   price1h?: number | null;
+  price2h?: number | null;
   price1d?: number | null;
+  price1w?: number | null;
+
+  // Percentage moves relative to event price
+  move10m?: number | null;
+  move15m?: number | null;
+  move30m?: number | null;
+  move1h?: number | null;
+  move2h?: number | null;
+  move1d?: number | null;
+  move1w?: number | null;
 
   // Index prices (SPY for market adjustment)
   indexPriceAtEvent?: number;
@@ -63,6 +77,7 @@ export interface NewsArticle {
   // Data source tracking
   priceSource?: "polygon" | "yahoo" | "google" | "avanza" | "tradingview" | "none";
 }
+
 
 export interface ScraperConfig {
   stocks: Stock[];

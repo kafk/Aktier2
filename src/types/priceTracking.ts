@@ -6,10 +6,26 @@ export interface PriceSnapshot {
 }
 
 export interface PriceMovement {
-  // Core prices
+  // Core price at news event
   priceAtEvent: number;
-  price1h: number | null;        // null if not yet available
-  price1d: number | null;        // null if not yet available
+
+  // Multi-horizon prices (10m, 15m, 30m, 1h, 2h, 1d, 1w)
+  price10m: number | null;
+  price15m: number | null;
+  price30m: number | null;
+  price1h: number | null;
+  price2h: number | null;
+  price1d: number | null;
+  price1w: number | null;
+
+  // Multi-horizon percentage moves (% change relative to event)
+  move10m: number | null;
+  move15m: number | null;
+  move30m: number | null;
+  move1h: number | null;
+  move2h: number | null;
+  move1d: number | null;
+  move1w: number | null;
 
   // Index prices (for market adjustment)
   indexPriceAtEvent: number;
@@ -77,13 +93,13 @@ export function getImpactVerdict1d(impact: number): ImpactVerdict {
   return { label: "major", threshold: IMPACT_THRESHOLDS_1D.major };
 }
 
-// Default baseline values (will be replaced with real calculations)
+// Default baseline values
 export const DEFAULT_BASELINE = {
   baseline1h: 0.4,  // 0.4% average 1H move
   baseline1d: 1.2,  // 1.2% average 1D move
 };
 
-// Calculate all price movement metrics
+// Calculate all price movement metrics across horizons (10m, 15m, 30m, 1h, 2h, 1d, 1w)
 export function calculatePriceMovement(
   priceAtEvent: number,
   price1h: number | null,
@@ -93,13 +109,31 @@ export function calculatePriceMovement(
   indexPrice1d: number | null,
   baseline1h: number = DEFAULT_BASELINE.baseline1h,
   baseline1d: number = DEFAULT_BASELINE.baseline1d,
-  is1hTruncated: boolean = false
+  is1hTruncated: boolean = false,
+  price10m: number | null = null,
+  price15m: number | null = null,
+  price30m: number | null = null,
+  price2h: number | null = null,
+  price1w: number | null = null
 ): PriceMovement {
+  const calcMove = (price: number | null) =>
+    price !== null && priceAtEvent > 0
+      ? ((price - priceAtEvent) / priceAtEvent) * 100
+      : null;
+
+  const move10m = calcMove(price10m);
+  const move15m = calcMove(price15m);
+  const move30m = calcMove(price30m);
+  const move1h = calcMove(price1h);
+  const move2h = calcMove(price2h);
+  const move1d = calcMove(price1d);
+  const move1w = calcMove(price1w);
+
   // Calculate stock absolute moves
-  const stockAbsMove1h = price1h !== null
+  const stockAbsMove1h = price1h !== null && priceAtEvent > 0
     ? Math.abs(price1h - priceAtEvent) / priceAtEvent * 100
     : null;
-  const stockAbsMove1d = price1d !== null
+  const stockAbsMove1d = price1d !== null && priceAtEvent > 0
     ? Math.abs(price1d - priceAtEvent) / priceAtEvent * 100
     : null;
 
@@ -129,8 +163,20 @@ export function calculatePriceMovement(
 
   return {
     priceAtEvent,
+    price10m,
+    price15m,
+    price30m,
     price1h,
+    price2h,
     price1d,
+    price1w,
+    move10m,
+    move15m,
+    move30m,
+    move1h,
+    move2h,
+    move1d,
+    move1w,
     indexPriceAtEvent,
     indexPrice1h,
     indexPrice1d,
@@ -164,3 +210,4 @@ export function initializePriceMovement(
     null
   );
 }
+
