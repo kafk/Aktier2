@@ -719,12 +719,13 @@ export const STOCK_DICTIONARY: StockInfo[] = [
  * Check if an article matches a specific stock (by ticker, name, or aliases)
  */
 export function matchStockInArticle(
-  article: { title: string; description?: string; ticker?: string },
+  article: { title: string; description?: string; ticker?: string; author?: string },
   stock: Stock
 ): boolean {
   const titleUpper = article.title.toUpperCase();
   const descUpper = (article.description || "").toUpperCase();
-  const combined = `${titleUpper} ${descUpper}`;
+  const authorUpper = (article.author || "").toUpperCase();
+  const combined = `${titleUpper} ${descUpper} ${authorUpper}`;
 
   // Find info from dictionary if available
   const dictInfo = STOCK_DICTIONARY.find(
@@ -747,7 +748,16 @@ export function matchStockInArticle(
     }
   }
 
-  // 1. Check article ticker
+  // 1. Check author if provided (MFN feed)
+  if (authorUpper) {
+    for (const alias of Array.from(aliasesToCheck)) {
+      if (alias.length >= 2 && (authorUpper === alias || authorUpper.includes(alias))) {
+        return true;
+      }
+    }
+  }
+
+  // 2. Check article ticker
   if (article.ticker) {
     const cleanTicker = article.ticker.replace(/\.ST$/i, "").toUpperCase();
     if (aliasesToCheck.has(cleanTicker) || aliasesToCheck.has(article.ticker.toUpperCase())) {
@@ -755,7 +765,7 @@ export function matchStockInArticle(
     }
   }
 
-  // 2. Check headline prefix (e.g. "VOLVO:", "ERICSSON:", "H&M:")
+  // 3. Check headline prefix (e.g. "VOLVO:", "ERICSSON:", "H&M:")
   const prefixMatch = titleUpper.match(/^([A-ZÅÄÖ0-9&.\-\s]{2,20}):/);
   if (prefixMatch) {
     const prefix = prefixMatch[1].trim();
@@ -764,7 +774,7 @@ export function matchStockInArticle(
     }
   }
 
-  // 3. Word and compound check in title and description (e.g. "Google-avtal", "Nvidias", "Apple-chef")
+  // 4. Word and compound check in title and description (e.g. "Google-avtal", "Nvidias", "Apple-chef")
   for (const alias of Array.from(aliasesToCheck)) {
     if (alias.length < 2) continue;
 
@@ -783,11 +793,20 @@ export function detectStockFromArticle(article: {
   title: string;
   description?: string;
   ticker?: string;
+  author?: string;
 }): Stock | null {
   // Check if article matches any stock in our dictionary
   for (const stock of STOCK_DICTIONARY) {
     if (matchStockInArticle(article, stock)) {
       return { symbol: stock.symbol, name: stock.name };
+    }
+  }
+
+  // Check author
+  if (article.author) {
+    const cleanAuthor = article.author.trim();
+    if (cleanAuthor.length > 1) {
+      return { symbol: cleanAuthor, name: cleanAuthor };
     }
   }
 
@@ -805,3 +824,4 @@ export function detectStockFromArticle(article: {
 
   return null;
 }
+

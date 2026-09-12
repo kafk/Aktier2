@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScraperState, MarketDataSource } from "@/types/scraper";
 
-type NewsSource = "yahoo" | "placera" | "both";
+export type NewsSource = "yahoo" | "placera" | "mfn" | "nordic" | "all" | "both";
 export type PlaceraScrapeMode = "feed" | "search" | "both";
 
 interface ScraperControlsProps {
@@ -78,9 +78,11 @@ export function ScraperControls({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="placera">🇸🇪 Placera.se (Swedish)</SelectItem>
-                  <SelectItem value="yahoo">🇺🇸 Yahoo Finance (US)</SelectItem>
-                  <SelectItem value="both">Both Sources</SelectItem>
+                  <SelectItem value="placera">🇸🇪 Placera.se (Swedish News & Telegram)</SelectItem>
+                  <SelectItem value="mfn">📰 MFN.se (Nordic Press Releases & Regulatory)</SelectItem>
+                  <SelectItem value="nordic">🇸🇪 Placera + MFN.se (All Nordic)</SelectItem>
+                  <SelectItem value="yahoo">🇺🇸 Yahoo Finance (US News)</SelectItem>
+                  <SelectItem value="all">🌐 All Sources (Placera, MFN, Yahoo)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

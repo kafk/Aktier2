@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
-import { ScraperControls, PlaceraScrapeMode } from "@/components/scraper/ScraperControls";
+import { ScraperControls, PlaceraScrapeMode, NewsSource } from "@/components/scraper/ScraperControls";
 import { ScraperResults } from "@/components/scraper/ScraperResults";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
@@ -44,7 +44,17 @@ interface PlaceraNewsItem {
   ticker?: string;
 }
 
-type NewsSource = "yahoo" | "placera" | "both";
+interface MfnNewsItem {
+  title: string;
+  link: string;
+  pubDate: string;
+  description: string;
+  source: string;
+  category: string;
+  author?: string;
+  isRegulatory?: boolean;
+}
+
 
 // Fetch historical stock price at a specific time with market data source
 async function fetchHistoricalPrice(
@@ -449,23 +459,26 @@ export default function ScraperPage() {
     const setArticlesScanned = (n: number) => { articlesScanned = n; };
     const setNotificationCount = (n: number) => { notificationCount = n; };
 
-    // Fetch from Placera if selected
-    if (newsSource === "placera" || newsSource === "both") {
-      try {
-        setScraperState((prev) => ({ ...prev, progress: 5 }));
+    // Determine active stages
+    const usePlacera = newsSource === "placera" || newsSource === "nordic" || newsSource === "all" || newsSource === "both";
+    const useMfn = newsSource === "mfn" || newsSource === "nordic" || newsSource === "all";
+    const useYahoo = newsSource === "yahoo" || newsSource === "all" || newsSource === "both";
 
-        const stockSymbols = selectedStocks.map(s => s.symbol).join(",");
+    const totalActiveStages = (usePlacera ? 1 : 0) + (useMfn ? 1 : 0) + (useYahoo ? 1 : 0);
+    const stageWeight = 100 / Math.max(1, totalActiveStages);
+    let completedStages = 0;
+
+    const stockSymbols = selectedStocks.map(s => s.symbol).join(",");
+
+    // 1. Fetch from Placera if selected
+    if (usePlacera) {
+      try {
+        setScraperState((prev) => ({ ...prev, progress: Math.max(2, completedStages * stageWeight) }));
+
         const placeraUrl = `/api/placera-news?tab=all&days=${daysToScrape}&mode=${placeraMode}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
         console.log(`Fetching Placera news (${placeraMode} mode, ${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
         const response = await fetch(placeraUrl);
         const data = await response.json();
-
-        console.log("Placera response:", {
-          ok: response.ok,
-          status: response.status,
-          articlesCount: data.articles?.length || 0,
-          debug: data.debug
-        });
 
         if (data.error) {
           console.error("Placera API error:", data.error);
@@ -474,10 +487,6 @@ export default function ScraperPage() {
         if (data.articles && Array.isArray(data.articles)) {
           const placeraArticles = data.articles as PlaceraNewsItem[];
           const totalPlacera = placeraArticles.length;
-
-          if (totalPlacera === 0) {
-            console.warn("Placera returned 0 articles. Debug info:", data.debug);
-          }
 
           for (let i = 0; i < placeraArticles.length; i++) {
             if (scraperRef.current.shouldStop) break;
@@ -524,14 +533,11 @@ export default function ScraperPage() {
               }
             }
 
-            // Update progress for Placera portion
-            const placeraProgress = newsSource === "placera"
-              ? ((i + 1) / totalPlacera) * 100
-              : ((i + 1) / totalPlacera) * 50;
-
+            // Update progress
+            const currentStageProgress = totalPlacera > 0 ? ((i + 1) / totalPlacera) * stageWeight : stageWeight;
             setScraperState((prev) => ({
               ...prev,
-              progress: placeraProgress,
+              progress: completedStages * stageWeight + currentStageProgress,
               totalArticlesScanned: articlesScanned,
             }));
           }
@@ -539,12 +545,86 @@ export default function ScraperPage() {
       } catch (error) {
         console.error("Error fetching Placera news:", error);
       }
+      completedStages++;
     }
 
-    // Fetch from Yahoo if selected
-    if (newsSource === "yahoo" || newsSource === "both") {
+    // 2. Fetch from MFN if selected
+    if (useMfn && !scraperRef.current.shouldStop) {
+      try {
+        setScraperState((prev) => ({ ...prev, progress: completedStages * stageWeight }));
+
+        const mfnUrl = `/api/mfn-news?days=${daysToScrape}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
+        console.log(`Fetching MFN news (${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
+        const response = await fetch(mfnUrl);
+        const data = await response.json();
+
+        if (data.error) {
+          console.error("MFN API error:", data.error);
+        }
+
+        if (data.articles && Array.isArray(data.articles)) {
+          const mfnArticles = data.articles as MfnNewsItem[];
+          const totalMfn = mfnArticles.length;
+
+          for (let i = 0; i < mfnArticles.length; i++) {
+            if (scraperRef.current.shouldStop) break;
+
+            while (scraperRef.current.shouldPause && !scraperRef.current.shouldStop) {
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+
+            const article = mfnArticles[i];
+            articlesScanned++;
+
+            let matchedStock: string | undefined = undefined;
+
+            if (selectedStocks.length > 0) {
+              for (const stock of selectedStocks) {
+                if (matchStockInArticle(article, stock)) {
+                  matchedStock = stock.symbol;
+                  break;
+                }
+              }
+
+              if (!matchedStock) {
+                continue;
+              }
+            } else {
+              const detected = detectStockFromArticle(article);
+              matchedStock = detected ? detected.symbol : (article.author || "MARKET");
+            }
+
+            if (matchedStock) {
+              const result = await processArticle(
+                article,
+                matchedStock,
+                articlesScanned,
+                notificationCount,
+                setArticlesScanned,
+                setNotificationCount
+              );
+              if (result.matched) {
+                notificationCount = result.newNotificationCount;
+              }
+            }
+
+            const currentStageProgress = totalMfn > 0 ? ((i + 1) / totalMfn) * stageWeight : stageWeight;
+            setScraperState((prev) => ({
+              ...prev,
+              progress: completedStages * stageWeight + currentStageProgress,
+              totalArticlesScanned: articlesScanned,
+            }));
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching MFN news:", error);
+      }
+      completedStages++;
+    }
+
+    // 3. Fetch from Yahoo if selected
+    if (useYahoo && !scraperRef.current.shouldStop) {
       const totalStocks = selectedStocks.length;
-      const baseProgress = newsSource === "both" ? 50 : 0;
 
       for (let i = 0; i < selectedStocks.length; i++) {
         const stock = selectedStocks[i];
@@ -594,10 +674,10 @@ export default function ScraperPage() {
         }
 
         // Update progress
-        const yahooProgress = baseProgress + ((i + 1) / totalStocks) * (newsSource === "both" ? 50 : 100);
+        const currentStageProgress = totalStocks > 0 ? ((i + 1) / totalStocks) * stageWeight : stageWeight;
         setScraperState((prev) => ({
           ...prev,
-          progress: yahooProgress,
+          progress: completedStages * stageWeight + currentStageProgress,
         }));
 
         // Small delay between stocks
@@ -605,6 +685,7 @@ export default function ScraperPage() {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
+      completedStages++;
     }
 
     if (!scraperRef.current.shouldPause) {
