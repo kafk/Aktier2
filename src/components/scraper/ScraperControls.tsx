@@ -14,8 +14,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScraperState, MarketDataSource } from "@/types/scraper";
 
-export type NewsSource = "yahoo" | "placera" | "mfn" | "nordic" | "all" | "both";
+export type NewsSource = "yahoo" | "placera" | "placera_press" | "mfn" | "nordic" | "all" | "both";
 export type PlaceraScrapeMode = "feed" | "search" | "both";
+export type PlaceraTab = "all" | "pressmeddelande" | "telegram" | "extern-analys";
 
 interface ScraperControlsProps {
   daysToScrape: number;
@@ -28,6 +29,8 @@ interface ScraperControlsProps {
   onMarketDataSourceChange?: (source: MarketDataSource) => void;
   placeraMode?: PlaceraScrapeMode;
   onPlaceraModeChange?: (mode: PlaceraScrapeMode) => void;
+  placeraTab?: PlaceraTab;
+  onPlaceraTabChange?: (tab: PlaceraTab) => void;
   scraperState: ScraperState;
   onStart: () => void;
   onPause: () => void;
@@ -47,6 +50,8 @@ export function ScraperControls({
   onMarketDataSourceChange,
   placeraMode = "both",
   onPlaceraModeChange,
+  placeraTab = "all",
+  onPlaceraTabChange,
   scraperState,
   onStart,
   onPause,
@@ -55,6 +60,7 @@ export function ScraperControls({
   canStart,
 }: ScraperControlsProps) {
   const { isRunning, isPaused, progress, totalArticlesScanned, notificationCount } = scraperState;
+  const isPlaceraActive = newsSource === "placera" || newsSource === "placera_press" || newsSource === "nordic" || newsSource === "all" || newsSource === "both";
 
   return (
     <Card>
@@ -78,7 +84,8 @@ export function ScraperControls({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="placera">🇸🇪 Placera.se (Swedish News & Telegram)</SelectItem>
+                  <SelectItem value="placera">🇸🇪 Placera.se (Alla nyheter & telegram)</SelectItem>
+                  <SelectItem value="placera_press">📢 Placera.se (Endast Pressmeddelanden)</SelectItem>
                   <SelectItem value="mfn">📰 MFN.se (Nordic Press Releases & Regulatory)</SelectItem>
                   <SelectItem value="nordic">🇸🇪 Placera + MFN.se (All Nordic)</SelectItem>
                   <SelectItem value="yahoo">🇺🇸 Yahoo Finance (US News)</SelectItem>
@@ -110,24 +117,49 @@ export function ScraperControls({
             </div>
           </div>
 
-          {/* Placera Scraping Strategy (Shown when Placera is active) */}
-          {(newsSource === "placera" || newsSource === "both") && (
-            <div className="space-y-2">
-              <Label>Placera Scraping Strategy</Label>
-              <Select
-                value={placeraMode}
-                onValueChange={(v) => onPlaceraModeChange?.(v as PlaceraScrapeMode)}
-                disabled={isRunning}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="both">⚡ Combined (Deep Feed + Stock Search)</SelectItem>
-                  <SelectItem value="feed">🔄 Deep Feed Pagination (Full Market)</SelectItem>
-                  <SelectItem value="search">🎯 Stock-Specific Search (Targeted)</SelectItem>
-                </SelectContent>
-              </Select>
+          {/* Placera Options (Shown when Placera is active) */}
+          {isPlaceraActive && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-muted/40 p-3 rounded-lg border border-border/50">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Placera Flik / Kategori
+                </Label>
+                <Select
+                  value={newsSource === "placera_press" ? "pressmeddelande" : placeraTab}
+                  onValueChange={(v) => onPlaceraTabChange?.(v as PlaceraTab)}
+                  disabled={isRunning || newsSource === "placera_press"}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pressmeddelande">📢 Endast Pressmeddelanden (tab=pressmeddelande&limit=100)</SelectItem>
+                    <SelectItem value="all">⚡ Alla kategorier (Telegram + Press + Analys)</SelectItem>
+                    <SelectItem value="telegram">📰 Endast Telegram</SelectItem>
+                    <SelectItem value="extern-analys">📊 Endast Analyser</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Placera Scraping Strategy
+                </Label>
+                <Select
+                  value={placeraMode}
+                  onValueChange={(v) => onPlaceraModeChange?.(v as PlaceraScrapeMode)}
+                  disabled={isRunning}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="both">⚡ Combined (Deep Feed + Stock Search)</SelectItem>
+                    <SelectItem value="feed">🔄 Deep Feed Pagination (Full Market)</SelectItem>
+                    <SelectItem value="search">🎯 Stock-Specific Search (Targeted)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
 

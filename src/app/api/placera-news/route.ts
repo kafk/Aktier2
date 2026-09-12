@@ -120,8 +120,8 @@ function parseRscResponse(rscData: string, category: string, sourceUrl: string):
   // RSC format: lines like "0:..." or "1:..." containing serialized React data
   // Articles appear as arrays with href, title, and date info
 
-  // Pattern to find article links - matches /telegram/slug-here or /placera/telegram/slug
-  const articleLinkPattern = /(?:\/placera)?\/telegram\/([a-z0-9-]+(?:-[a-z0-9]+)*)/gi;
+  // Pattern to find article links - matches /telegram/slug, /pressmeddelanden/slug, /analys/slug
+  const articleLinkPattern = /(?:\/placera)?\/(?:telegram|pressmeddelanden?|extern-analys|analys)\/([a-z0-9-]+(?:-[a-z0-9]+)*)/gi;
 
   // Find all article links first
   let linkMatch;
@@ -288,8 +288,8 @@ function simpleExtractArticles(html: string, tab: string, sourceUrl: string): Pl
   const articles: PlaceraNewsItem[] = [];
   const seenLinks = new Set<string>();
 
-  // Find all telegram article links with surrounding context for date extraction
-  const linkPattern = /href="(\/telegram\/[^"]+)"/g;
+  // Find all telegram / pressmeddelanden article links with surrounding context for date extraction
+  const linkPattern = /href="(\/(?:telegram|pressmeddelanden?|extern-analys|analys)\/[^"]+)"/g;
   let match;
 
   while ((match = linkPattern.exec(html)) !== null) {
@@ -576,9 +576,11 @@ async function getPlaceraActionId(): Promise<string> {
 function tabToCollectionName(tab: string): string {
   switch (tab) {
     case "pressmeddelande":
+    case "pressmeddelanden":
     case "press-releases":
       return "press-releases";
     case "extern-analys":
+    case "analys":
     case "external-analysis":
       return "external-analysis";
     case "telegram":
@@ -628,7 +630,7 @@ async function fetchPlaceraServerAction(
 
     for (const item of items) {
       if (!item || !item.title) continue;
-      const coll = item.collectionPath || (tab === "pressmeddelande" ? "pressmeddelande" : tab === "extern-analys" ? "analys" : "telegram");
+      const coll = item.collectionPath || (tab.startsWith("press") ? "pressmeddelanden" : tab.includes("analys") ? "analys" : "telegram");
       const slug = item.slug || "";
       const link = slug ? `https://www.placera.se/${coll}/${slug}` : url;
       const pubDate = item.createdAt || (item.formattedTimestamp ? parseSwedishDate(item.formattedTimestamp) : new Date().toISOString());
@@ -656,12 +658,12 @@ async function fetchPlaceraServerAction(
 async function fetchPaginatedTab(
   tab: string,
   cutoffDate: Date,
-  maxPages: number = 4
+  maxPages: number = 4,
+  limitPerPage: number = 50
 ): Promise<{ articles: PlaceraNewsItem[]; totalBytes: number; pagesFetched: number }> {
   let allArticles: PlaceraNewsItem[] = [];
   let totalBytes = 0;
   const seenLinks = new Set<string>();
-  const limitPerPage = 50;
   let pagesFetched = 0;
 
   for (let page = 0; page < maxPages; page++) {
@@ -834,7 +836,7 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
                   $article.find("strong").first().text().trim();
 
       // Find link within article
-      const href = $article.find("a[href*='/telegram/']").first().attr("href") || "";
+      const href = $article.find("a[href*='/telegram/'], a[href*='/pressmeddelande'], a[href*='/pressmeddelanden/'], a[href*='/analys/'], a[href*='/nyheter/'], a[href]").first().attr("href") || "";
       const link = href ? (href.startsWith("http") ? href : `https://www.placera.se${href}`) : "";
 
       // Find date
@@ -1221,10 +1223,13 @@ function parseSwedishDate(dateStr: string): string {
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-  const tab = searchParams.get("tab") || "all"; // telegram, extern-analys, pressmeddelande, or all
+  const rawTab = searchParams.get("tab") || "all"; // telegram, extern-analys, pressmeddelande, or all
+  const tab = rawTab === "pressmeddelanden" ? "pressmeddelande" : rawTab;
   const mode = searchParams.get("mode") || "both"; // "feed" | "search" | "both"
   const daysParam = searchParams.get("days");
   const days = daysParam ? Math.max(1, parseInt(daysParam, 10)) : 7;
+  const limitParam = searchParams.get("limit");
+  const limit = limitParam ? parseInt(limitParam, 10) : (tab === "pressmeddelande" ? 100 : 50);
   const stocksParam = searchParams.get("stocks") || searchParams.get("q") || "";
   const maxPagesParam = searchParams.get("maxPages");
   // Cap max pages to 2-3 per tab to keep total latency well under serverless timeouts
@@ -1239,7 +1244,7 @@ export async function GET(request: NextRequest) {
     : [];
 
   // Check cache
-  const cacheKey = `${tab}-${mode}-${days}-${stocksParam}-${maxPages}`;
+  const cacheKey = `${tab}-${mode}-${days}-${stocksParam}-${maxPages}-${limit}`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return NextResponse.json({
@@ -1249,6 +1254,8 @@ export async function GET(request: NextRequest) {
         fetchStatus: "cached",
         mode,
         days,
+        tab,
+        limit,
         cutoff: cutoffDate.toISOString(),
       },
     });
@@ -1264,7 +1271,7 @@ export async function GET(request: NextRequest) {
       const tabsToFetch = tab === "all" ? ["telegram", "extern-analys", "pressmeddelande"] : [tab];
       
       const tabResults = await Promise.all(
-        tabsToFetch.map(t => fetchPaginatedTab(t, cutoffDate, maxPages))
+        tabsToFetch.map(t => fetchPaginatedTab(t, cutoffDate, maxPages, limit))
       );
 
       for (let i = 0; i < tabsToFetch.length; i++) {

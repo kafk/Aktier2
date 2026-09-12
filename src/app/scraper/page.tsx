@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
-import { ScraperControls, PlaceraScrapeMode, NewsSource } from "@/components/scraper/ScraperControls";
+import { ScraperControls, PlaceraScrapeMode, NewsSource, PlaceraTab } from "@/components/scraper/ScraperControls";
 import { ScraperResults } from "@/components/scraper/ScraperResults";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
@@ -294,6 +294,7 @@ export default function ScraperPage() {
   const [newsSource, setNewsSource] = useLocalStorage<NewsSource>("scraper-news-source", "placera");
   const [marketDataSource, setMarketDataSource] = useLocalStorage<MarketDataSource>("scraper-market-data-source", "auto");
   const [placeraMode, setPlaceraMode] = useLocalStorage<PlaceraScrapeMode>("scraper-placera-mode", "both");
+  const [placeraTab, setPlaceraTab] = useLocalStorage<PlaceraTab>("scraper-placera-tab", "all");
 
   // Initialize keywords from all active classifications on first load
   useEffect(() => {
@@ -540,7 +541,7 @@ export default function ScraperPage() {
     const setNotificationCount = (n: number) => { notificationCount = n; };
 
     // Determine active stages
-    const usePlacera = newsSource === "placera" || newsSource === "nordic" || newsSource === "all" || newsSource === "both";
+    const usePlacera = newsSource === "placera" || newsSource === "placera_press" || newsSource === "nordic" || newsSource === "all" || newsSource === "both";
     const useMfn = newsSource === "mfn" || newsSource === "nordic" || newsSource === "all";
     const useYahoo = newsSource === "yahoo" || newsSource === "all" || newsSource === "both";
 
@@ -555,8 +556,10 @@ export default function ScraperPage() {
       try {
         setScraperState((prev) => ({ ...prev, progress: Math.max(2, completedStages * stageWeight) }));
 
-        const placeraUrl = `/api/placera-news?tab=all&days=${daysToScrape}&mode=${placeraMode}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
-        console.log(`Fetching Placera news (${placeraMode} mode, ${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
+        const activePlaceraTab = newsSource === "placera_press" ? "pressmeddelande" : placeraTab;
+        const placeraLimit = activePlaceraTab === "pressmeddelande" ? 100 : 50;
+        const placeraUrl = `/api/placera-news?tab=${activePlaceraTab}&limit=${placeraLimit}&days=${daysToScrape}&mode=${placeraMode}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
+        console.log(`Fetching Placera news (${activePlaceraTab} tab, limit ${placeraLimit}, ${placeraMode} mode, ${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
         const response = await fetch(placeraUrl);
         const data = await response.json();
 
@@ -775,7 +778,7 @@ export default function ScraperPage() {
         progress: 100,
       }));
     }
-  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit, classifications, scoringConfig, newsSource, placeraMode]);
+  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit, classifications, scoringConfig, newsSource, placeraMode, placeraTab]);
 
   const handleStart = () => {
     runScraper();
@@ -813,7 +816,7 @@ export default function ScraperPage() {
   const canStart =
     selectedKeywords.length > 0 &&
     !scraperState.isRunning &&
-    (newsSource === "placera" || selectedStocks.length > 0);
+    (newsSource === "placera" || newsSource === "placera_press" || selectedStocks.length > 0);
 
   const hasUsStocksSelected = selectedStocks.some((s) => {
     const sym = s.symbol.toUpperCase();
@@ -829,9 +832,12 @@ export default function ScraperPage() {
         title="History Scraping"
         titleClassName="text-red-600"
         subtitle={`Monitor stocks for keyword-matching news from ${
-          newsSource === "placera" ? "Placera.se" :
+          newsSource === "placera" ? "Placera.se (All)" :
+          newsSource === "placera_press" ? "Placera.se (Pressmeddelanden)" :
+          newsSource === "mfn" ? "MFN.se (Nordic Press)" :
+          newsSource === "nordic" ? "Placera & MFN.se" :
           newsSource === "yahoo" ? "Yahoo Finance" :
-          "Placera.se & Yahoo Finance"
+          "Placera, MFN & Yahoo Finance"
         }`}
         backHref="/"
       >
@@ -873,6 +879,8 @@ export default function ScraperPage() {
               onMarketDataSourceChange={setMarketDataSource}
               placeraMode={placeraMode}
               onPlaceraModeChange={setPlaceraMode}
+              placeraTab={placeraTab}
+              onPlaceraTabChange={setPlaceraTab}
               scraperState={scraperState}
               onStart={handleStart}
               onPause={handlePause}
