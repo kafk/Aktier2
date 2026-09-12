@@ -11,6 +11,8 @@ export interface ScraperKeyword {
   classificationName?: string;
 }
 
+export type MarketDataSource = "auto" | "yahoo" | "polygon" | "google" | "avanza" | "tradingview";
+
 export interface NewsArticle {
   id: string;
   title: string;
@@ -54,7 +56,7 @@ export interface NewsArticle {
   is1hTruncated?: boolean;
 
   // Data source tracking
-  priceSource?: "polygon" | "yahoo" | "google" | "none";
+  priceSource?: "polygon" | "yahoo" | "google" | "avanza" | "tradingview" | "none";
 }
 
 export interface ScraperConfig {
