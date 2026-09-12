@@ -22,6 +22,29 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
   const [marketTab, setMarketTab] = useState<MarketTab>("SE");
   const [subListFilter, setSubListFilter] = useState<SubListFilter>("all");
 
+  // Calculate total counts for each sub-list
+  const listCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: 0,
+      OMXS30: 0,
+      "Large Cap": 0,
+      "Mid Cap": 0,
+      "Small Cap": 0,
+      "First North": 0,
+      "US Tech": 0,
+      "US Blue Chips": 0,
+    };
+    for (const stock of popularStocks) {
+      if (marketTab === "all" || stock.market === marketTab) {
+        counts.all++;
+        if (stock.list && counts[stock.list] !== undefined) {
+          counts[stock.list]++;
+        }
+      }
+    }
+    return counts;
+  }, [marketTab]);
+
   // Filter stocks by market, sub-list, and search query
   const availableStocks = useMemo(() => {
     return popularStocks.filter((stock) => {
@@ -205,7 +228,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                   : "bg-background text-muted-foreground hover:bg-muted"
               }`}
             >
-              Alla
+              Alla ({listCounts.all})
             </button>
 
             {marketTab === "SE" || marketTab === "all" ? (
@@ -219,7 +242,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                       : "bg-background text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  OMXS30 (30 st)
+                  OMXS30 ({listCounts.OMXS30})
                 </button>
                 <button
                   type="button"
@@ -230,7 +253,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                       : "bg-background text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  Large Cap
+                  Large Cap ({listCounts["Large Cap"]})
                 </button>
                 <button
                   type="button"
@@ -241,7 +264,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                       : "bg-background text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  Mid Cap
+                  Mid Cap ({listCounts["Mid Cap"]})
                 </button>
                 <button
                   type="button"
@@ -252,7 +275,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                       : "bg-background text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  Small Cap
+                  Small Cap ({listCounts["Small Cap"]})
                 </button>
                 <button
                   type="button"
@@ -263,7 +286,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                       : "bg-background text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  First North
+                  First North ({listCounts["First North"]})
                 </button>
               </>
             ) : null}
@@ -279,7 +302,7 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                       : "bg-background text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  US Tech
+                  US Tech ({listCounts["US Tech"]})
                 </button>
                 <button
                   type="button"
@@ -290,11 +313,12 @@ export function StockSelector({ selectedStocks, onStocksChange }: StockSelectorP
                       : "bg-background text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  US Blue Chips
+                  US Blue Chips ({listCounts["US Blue Chips"]})
                 </button>
               </>
             ) : null}
           </div>
+
 
           {/* Search bar & Batch select button */}
           <div className="flex gap-2 items-center">
