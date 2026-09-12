@@ -17,6 +17,11 @@ interface ScraperResultsProps {
 export function ScraperResults({ articles, onClearResults, onArticleClick }: ScraperResultsProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+  const [expandedKeywords, setExpandedKeywords] = useState<Record<string, boolean>>({});
+
+  const toggleKeywords = (id: string) => {
+    setExpandedKeywords(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   // Get unique event types/labels from articles
   const availableLabels = useMemo(() => {
@@ -326,18 +331,22 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                             )}
                           </span>
                           <div className="flex gap-1 items-center flex-wrap">
-                            {article.matchedKeywords.slice(0, 2).map((kw, i) => (
+                            {(expandedKeywords[article.id]
+                              ? article.matchedKeywords
+                              : article.matchedKeywords.slice(0, 2)
+                            ).map((kw, i) => (
                               <Badge key={i} variant="outline" className="text-xs">
                                 {kw}
                               </Badge>
                             ))}
                             {article.matchedKeywords.length > 2 && (
                               <Badge
-                                variant="secondary"
-                                className="text-xs cursor-help"
-                                title={`Additional matched keywords: ${article.matchedKeywords.slice(2).join(", ")}`}
+                                variant={expandedKeywords[article.id] ? "default" : "secondary"}
+                                className="text-xs cursor-pointer hover:bg-primary/80 transition-colors select-none"
+                                onClick={() => toggleKeywords(article.id)}
+                                title={expandedKeywords[article.id] ? "Click to show fewer keywords" : `Click to show all ${article.matchedKeywords.length} keywords`}
                               >
-                                +{article.matchedKeywords.length - 2}
+                                {expandedKeywords[article.id] ? "Show less" : `+${article.matchedKeywords.length - 2}`}
                               </Badge>
                             )}
                           </div>
