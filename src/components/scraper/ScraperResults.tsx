@@ -10,6 +10,12 @@ import { getImpactVerdict1h, getImpactVerdict1d } from "@/types/priceTracking";
 import { isSwedishStockSymbol } from "@/lib/stockAliases";
 
 
+function cleanSource(source?: string): string {
+  if (!source) return "Källa";
+  // Strip URLs in parenthesis like (https://...)
+  return source.replace(/\s*\([^)]*https?:\/\/[^)]*\)/gi, "").trim() || source;
+}
+
 interface ScraperResultsProps {
   articles: NewsArticle[];
   onClearResults: () => void;
@@ -292,9 +298,18 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                           </div>
                         </div>
 
-                        {/* Title */}
+                        {/* Title - clickable link */}
                         <h4 className="font-medium text-sm mb-2 line-clamp-2">
-                          {article.title}
+                          <a
+                            href={article.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:underline inline-flex items-center gap-1.5 transition-colors group"
+                            title={article.url || article.title}
+                          >
+                            <span className="group-hover:text-blue-600 dark:group-hover:text-blue-400 font-semibold">{article.title}</span>
+                            <ExternalLink className="h-3.5 w-3.5 inline text-muted-foreground shrink-0 opacity-60 group-hover:opacity-100 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+                          </a>
                         </h4>
 
                         {/* Multi-Horizon Price Progression Timeline (10m, 15m, 30m, 1h, 2h, 1d, 1w) */}
@@ -445,16 +460,19 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                             )}
                           </div>
                         </div>
-                        {/* Source URL */}
-                        <div className="mt-1">
+                        {/* Source & Link */}
+                        <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                          <span className="font-semibold text-foreground/80">{cleanSource(article.source)}</span>
+                          <span>•</span>
                           <a
                             href={article.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate block max-w-full"
+                            className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1 truncate max-w-[420px]"
                             title={article.url}
                           >
-                            {article.source}: {article.url}
+                            <span className="truncate">{article.url}</span>
+                            <ExternalLink className="h-3 w-3 inline shrink-0 opacity-70" />
                           </a>
                         </div>
                       </div>

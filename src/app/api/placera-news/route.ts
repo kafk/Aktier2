@@ -178,7 +178,7 @@ function parseRscResponse(rscData: string, category: string, sourceUrl: string):
         link: `https://www.placera.se${link}`,
         pubDate,
         description: "",
-        source: `Placera ${category} (${sourceUrl})`,
+        source: category === "pressmeddelande" || category === "press-releases" ? "Placera Pressmeddelande" : category === "extern-analys" ? "Placera Analys" : "Placera Telegram",
         category,
         ticker: extractTicker(bestTitle),
       });
@@ -327,7 +327,7 @@ function simpleExtractArticles(html: string, tab: string, sourceUrl: string): Pl
       link: `https://www.placera.se${href}`,
       pubDate,
       description: "",
-      source: `Placera ${tab} (${sourceUrl})`,
+      source: tab.startsWith("press") ? "Placera Pressmeddelande" : tab.includes("analys") ? "Placera Analys" : "Placera Telegram",
       category: tab,
     });
   }
@@ -640,7 +640,7 @@ async function fetchPlaceraServerAction(
         link,
         pubDate,
         description: item.summary || item.body || "",
-        source: `Placera ${tab}`,
+        source: tab.startsWith("press") ? "Placera Pressmeddelande" : tab.includes("analys") ? "Placera Analys" : "Placera Telegram",
         category: tab,
         ticker: extractTicker(item.title),
       });
@@ -856,7 +856,7 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
           link: link || sourceUrl,
           pubDate,
           description,
-          source: `Placera ${category} (${sourceUrl})`,
+          source: category === "pressmeddelande" || category === "press-releases" ? "Placera Pressmeddelande" : category === "extern-analys" ? "Placera Analys" : "Placera Telegram",
           category,
           ticker: extractTicker(title),
         });
@@ -893,7 +893,7 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
             link: fullLink,
             pubDate,
             description: surroundingText.slice(0, 200),
-            source: `Placera search (${sourceUrl})`,
+            source: href.includes("pressmeddelande") ? "Placera Pressmeddelande" : href.includes("analys") ? "Placera Analys" : "Placera Telegram",
             category: "search",
             ticker: extractTicker(title),
           });
@@ -946,7 +946,7 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
           link,
           pubDate,
           description,
-          source: `Placera ${category} (${sourceUrl})`,
+          source: category === "pressmeddelande" || category === "press-releases" ? "Placera Pressmeddelande" : category === "extern-analys" ? "Placera Analys" : "Placera Telegram",
           category,
           ticker: extractTicker(title),
         });
