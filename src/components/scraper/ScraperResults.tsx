@@ -123,9 +123,52 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
     return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
   };
 
+  const renderHorizonPill = (
+    label: string,
+    price: number | null | undefined,
+    move: number | null | undefined,
+    cur: string
+  ) => {
+
+    if (price === null || price === undefined) {
+      return (
+        <div className="flex flex-col items-center justify-center px-2 py-1 rounded bg-muted/40 border border-muted text-[11px] min-w-[58px]">
+          <span className="text-[9.5px] text-muted-foreground font-medium uppercase tracking-wider">{label}</span>
+          <span className="text-muted-foreground text-[11px] font-mono leading-tight">—</span>
+          <span className="text-[9.5px] text-muted-foreground/60 font-sans">Pending</span>
+        </div>
+      );
+    }
+
+    const isPositive = move !== null && move !== undefined && move > 0.05;
+    const isNegative = move !== null && move !== undefined && move < -0.05;
+
+    const colorClass = isPositive
+      ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
+      : isNegative
+      ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
+      : "bg-muted/60 text-foreground border-muted-foreground/20";
+
+    const moveText = move !== null && move !== undefined
+      ? `${move > 0 ? "+" : ""}${move.toFixed(2)}%`
+      : "0.00%";
+
+    return (
+      <div
+        className={`flex flex-col items-center justify-center px-2 py-1 rounded border text-[11px] min-w-[62px] transition-all shadow-xs ${colorClass}`}
+        title={`${label}: ${cur}${price.toFixed(2)} (${moveText})`}
+      >
+        <span className="text-[9px] font-semibold opacity-75 uppercase tracking-wider">{label}</span>
+        <span className="font-mono font-bold text-[11.5px] leading-tight">{cur}{price.toFixed(2)}</span>
+        <span className="text-[10px] font-semibold">{moveText}</span>
+      </div>
+    );
+  };
+
   const toggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);
   };
+
 
   return (
     <Card>
@@ -251,17 +294,64 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                           {article.title}
                         </h4>
 
-                        {/* 1H and 1D Impact Boxes */}
+                        {/* Multi-Horizon Price Progression Timeline (10m, 15m, 30m, 1h, 2h, 1d, 1w) */}
+                        <div className="mb-2.5 p-2 rounded-lg bg-muted/25 border space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px] text-muted-foreground font-medium">
+                            <div className="flex items-center gap-1">
+                              <Timer className="h-3 w-3 text-primary" />
+                              <span className="font-semibold text-foreground">Price Progression Timeline:</span>
+                            </div>
+                            {article.priceAtEvent && (
+                              <span className="font-mono text-xs text-primary font-bold">
+                                @ Event: {cur}{article.priceAtEvent.toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5">
+                            {/* @ Event */}
+                            <div className="flex flex-col items-center justify-center px-2 py-1 rounded border text-[11px] min-w-[62px] bg-primary/10 border-primary/30 text-primary font-medium">
+                              <span className="text-[9.5px] uppercase tracking-wider font-semibold">Event</span>
+                              <span className="font-mono font-bold text-[11.5px] leading-tight">
+                                {article.priceAtEvent ? `${cur}${article.priceAtEvent.toFixed(2)}` : "—"}
+                              </span>
+                              <span className="text-[10px] opacity-80">Baseline</span>
+                            </div>
+
+                            {/* +10m */}
+                            {renderHorizonPill("10 min", article.price10m, article.move10m, cur)}
+
+                            {/* +15m */}
+                            {renderHorizonPill("15 min", article.price15m, article.move15m, cur)}
+
+                            {/* +30m */}
+                            {renderHorizonPill("30 min", article.price30m, article.move30m, cur)}
+
+                            {/* +1h */}
+                            {renderHorizonPill("1 hour", article.price1h, article.move1h, cur)}
+
+                            {/* +2h */}
+                            {renderHorizonPill("2 hours", article.price2h, article.move2h, cur)}
+
+                            {/* +1d */}
+                            {renderHorizonPill("1 day", article.price1d, article.move1d, cur)}
+
+                            {/* +1w */}
+                            {renderHorizonPill("1 week", article.price1w, article.move1w, cur)}
+                          </div>
+                        </div>
+
+                        {/* 1H and 1D Impact Verdict Boxes */}
                         <div className="flex gap-2 mb-2">
                           {/* 1H Impact */}
                           <div className={`flex-1 p-2 rounded-md border ${has1hData ? '' : 'opacity-50'}`}>
                             <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                               <Timer className="h-3 w-3" />
-                              <span>1H Reaction</span>
+                              <span>1H Impact (vs Market)</span>
                             </div>
                             {has1hData ? (
                               <>
-                                <div className="text-lg font-bold">
+                                <div className="text-base font-bold">
                                   {formatPercent(article.newsImpact1h)}
                                 </div>
                                 <div className={`text-xs px-1.5 py-0.5 rounded inline-block ${getVerdictColor(verdict1h?.label || 'noise')}`}>
@@ -269,9 +359,9 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                                 </div>
                               </>
                             ) : is1hUnavailable ? (
-                              <div className="text-sm text-muted-foreground">N/A (market closed)</div>
+                              <div className="text-xs text-muted-foreground">N/A (market closed)</div>
                             ) : (
-                              <div className="text-sm text-muted-foreground">Pending...</div>
+                              <div className="text-xs text-muted-foreground">Pending...</div>
                             )}
                           </div>
 
@@ -279,11 +369,11 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                           <div className={`flex-1 p-2 rounded-md border ${has1dData ? '' : 'opacity-50'}`}>
                             <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                               <Clock className="h-3 w-3" />
-                              <span>1D Impact</span>
+                              <span>1D Impact (vs Market)</span>
                             </div>
                             {has1dData ? (
                               <>
-                                <div className="text-lg font-bold">
+                                <div className="text-base font-bold">
                                   {formatPercent(article.newsImpact1d)}
                                 </div>
                                 <div className={`text-xs px-1.5 py-0.5 rounded inline-block ${getVerdictColor(verdict1d?.label || 'noise')}`}>
@@ -291,12 +381,13 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                                 </div>
                               </>
                             ) : is1dUnavailable ? (
-                              <div className="text-sm text-muted-foreground">N/A (market closed)</div>
+                              <div className="text-xs text-muted-foreground">N/A (market closed)</div>
                             ) : (
-                              <div className="text-sm text-muted-foreground">Pending...</div>
+                              <div className="text-xs text-muted-foreground">Pending...</div>
                             )}
                           </div>
                         </div>
+
 
                         {/* Meta info */}
                         <div className="flex items-center gap-2 flex-wrap">

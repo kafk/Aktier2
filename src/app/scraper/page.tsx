@@ -74,19 +74,34 @@ async function fetchHistoricalPrice(
   }
 }
 
-// Fetch all price points for an article (at event, +1h, +1d) in one fast call
+// Fetch all price points for an article (at event, 10m, 15m, 30m, 1h, 2h, 1d, 1w) in one fast call
 async function fetchAllPrices(
   symbol: string,
   publishedAt: string,
   marketDataSource: MarketDataSource = "auto"
 ): Promise<{
   priceAtEvent: number | null;
+  price10m: number | null;
+  price15m: number | null;
+  price30m: number | null;
   price1h: number | null;
+  price2h: number | null;
   price1d: number | null;
+  price1w: number | null;
   source: string;
 }> {
   if (!symbol || symbol === "MARKET" || symbol.trim() === "") {
-    return { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
+    return {
+      priceAtEvent: null,
+      price10m: null,
+      price15m: null,
+      price30m: null,
+      price1h: null,
+      price2h: null,
+      price1d: null,
+      price1w: null,
+      source: "none",
+    };
   }
 
   try {
@@ -94,20 +109,46 @@ async function fetchAllPrices(
       `/api/stock-price?symbol=${encodeURIComponent(symbol)}&eventTimestamp=${encodeURIComponent(publishedAt)}&source=${marketDataSource}`
     );
     if (!response.ok) {
-      return { priceAtEvent: null, price1h: null, price1d: null, source: "error" };
+      return {
+        priceAtEvent: null,
+        price10m: null,
+        price15m: null,
+        price30m: null,
+        price1h: null,
+        price2h: null,
+        price1d: null,
+        price1w: null,
+        source: "error",
+      };
     }
     const data = await response.json();
     return {
       priceAtEvent: data.priceAtEvent ?? null,
+      price10m: data.price10m ?? null,
+      price15m: data.price15m ?? null,
+      price30m: data.price30m ?? null,
       price1h: data.price1h ?? null,
+      price2h: data.price2h ?? null,
       price1d: data.price1d ?? null,
+      price1w: data.price1w ?? null,
       source: data.source || "none",
     };
   } catch (error) {
     console.error(`Error fetching prices for ${symbol}:`, error);
-    return { priceAtEvent: null, price1h: null, price1d: null, source: "error" };
+    return {
+      priceAtEvent: null,
+      price10m: null,
+      price15m: null,
+      price30m: null,
+      price1h: null,
+      price2h: null,
+      price1d: null,
+      price1w: null,
+      source: "error",
+    };
   }
 }
+
 
 // Analyze sentiment based on keywords and scoring config
 function analyzeSentiment(
@@ -322,9 +363,29 @@ export default function ScraperPage() {
     // Analyze sentiment and impact
     const analysis = analyzeSentiment(textToSearch, classifications, scoringConfig);
 
-    // Fetch historical prices for stock and SPY at event, +1h, +1d
-    let stockPrices = { priceAtEvent: null as number | null, price1h: null as number | null, price1d: null as number | null, source: "none" };
-    let spyPrices = { priceAtEvent: null as number | null, price1h: null as number | null, price1d: null as number | null, source: "none" };
+    // Fetch historical prices for stock and SPY across horizons (10m, 15m, 30m, 1h, 2h, 1d, 1w)
+    let stockPrices = {
+      priceAtEvent: null as number | null,
+      price10m: null as number | null,
+      price15m: null as number | null,
+      price30m: null as number | null,
+      price1h: null as number | null,
+      price2h: null as number | null,
+      price1d: null as number | null,
+      price1w: null as number | null,
+      source: "none",
+    };
+    let spyPrices = {
+      priceAtEvent: null as number | null,
+      price10m: null as number | null,
+      price15m: null as number | null,
+      price30m: null as number | null,
+      price1h: null as number | null,
+      price2h: null as number | null,
+      price1d: null as number | null,
+      price1w: null as number | null,
+      source: "none",
+    };
 
     try {
       const [fetchedStock, fetchedSpy] = await Promise.all([
@@ -347,7 +408,13 @@ export default function ScraperPage() {
           spyPrices.price1h,
           spyPrices.price1d,
           DEFAULT_BASELINE.baseline1h,
-          DEFAULT_BASELINE.baseline1d
+          DEFAULT_BASELINE.baseline1d,
+          false,
+          stockPrices.price10m,
+          stockPrices.price15m,
+          stockPrices.price30m,
+          stockPrices.price2h,
+          stockPrices.price1w
         )
       : null;
 
@@ -373,8 +440,20 @@ export default function ScraperPage() {
       eventType: analysis.eventType,
       eventCode: analysis.eventCode,
       priceAtEvent: stockPrices.priceAtEvent || undefined,
+      price10m: stockPrices.price10m,
+      price15m: stockPrices.price15m,
+      price30m: stockPrices.price30m,
       price1h: stockPrices.price1h,
+      price2h: stockPrices.price2h,
       price1d: stockPrices.price1d,
+      price1w: stockPrices.price1w,
+      move10m: priceMovement?.move10m,
+      move15m: priceMovement?.move15m,
+      move30m: priceMovement?.move30m,
+      move1h: priceMovement?.move1h,
+      move2h: priceMovement?.move2h,
+      move1d: priceMovement?.move1d,
+      move1w: priceMovement?.move1w,
       indexPriceAtEvent: spyPrices.priceAtEvent || undefined,
       indexPrice1h: spyPrices.price1h,
       indexPrice1d: spyPrices.price1d,
@@ -389,6 +468,7 @@ export default function ScraperPage() {
       priceTrackingStatus,
       priceSource: (stockPrices.source as NewsArticle["priceSource"]) || "none",
     };
+
 
     const newCount = notificationCount + 1;
 
