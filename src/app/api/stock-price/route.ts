@@ -648,7 +648,20 @@ async function fetchEventPricePoints(
   const daysDiff = Math.ceil((nowSec - eventSec) / (24 * 60 * 60));
   const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : daysDiff <= 30 ? "1mo" : "3mo";
 
-  const tryYahoo = async () => {
+  // 1. Try to fetch full chart data for multi-horizon resolution
+  let chartPoints: {
+    priceAtEvent: number | null;
+    price10m: number | null;
+    price15m: number | null;
+    price30m: number | null;
+    price1h: number | null;
+    price2h: number | null;
+    price1d: number | null;
+    price1w: number | null;
+    source: string;
+  } | null = null;
+
+  try {
     const chart = await getYahooChartData(symbol, range);
     if (chart) {
       const atEvent = findClosestPriceInChart(chart, eventSec);
@@ -661,7 +674,7 @@ async function fetchEventPricePoints(
       const at1w = nowSec >= time1wSec ? findClosestPriceInChart(chart, time1wSec) : null;
 
       if (atEvent !== null) {
-        return {
+        chartPoints = {
           priceAtEvent: atEvent,
           price10m: at10m,
           price15m: at15m,
@@ -674,140 +687,56 @@ async function fetchEventPricePoints(
         };
       }
     }
-    const yp = await fetchYahooPrice(symbol);
-    if (yp.price !== null) {
-      return {
-        priceAtEvent: yp.price,
-        price10m: null,
-        price15m: null,
-        price30m: null,
-        price1h: null,
-        price2h: null,
-        price1d: null,
-        price1w: null,
-        source: "yahoo",
-      };
-    }
-    return null;
-  };
+  } catch (err) {
+    console.warn(`Chart fetch failed for ${symbol}:`, err);
+  }
 
-  const tryTradingView = async () => {
-    const tvPrice = await fetchTradingViewPrice(symbol);
-    if (tvPrice !== null) {
-      return {
-        priceAtEvent: tvPrice,
-        price10m: null,
-        price15m: null,
-        price30m: null,
-        price1h: null,
-        price2h: null,
-        price1d: null,
-        price1w: null,
-        source: "tradingview",
-      };
-    }
-    return null;
-  };
+  // 2. Fetch price from preferred live provider if requested (TradingView, Avanza, Polygon, Google)
+  let livePrice: number | null = null;
+  let liveSource = "auto";
 
-  const tryAvanza = async () => {
-    if (isSwedishStock(symbol)) {
-      const avanzaPrice = await fetchAvanzaPrice(symbol);
-      if (avanzaPrice !== null) {
-        return {
-          priceAtEvent: avanzaPrice,
-          price10m: null,
-          price15m: null,
-          price30m: null,
-          price1h: null,
-          price2h: null,
-          price1d: null,
-          price1w: null,
-          source: "avanza",
-        };
-      }
-    }
-    return null;
-  };
-
-  const tryPolygon = async () => {
-    if (!POLYGON_API_KEY) return null;
-    const pPrice = await fetchPolygonPrice(symbol);
-    if (pPrice !== null) {
-      return {
-        priceAtEvent: pPrice,
-        price10m: null,
-        price15m: null,
-        price30m: null,
-        price1h: null,
-        price2h: null,
-        price1d: null,
-        price1w: null,
-        source: "polygon",
-      };
-    }
-    return null;
-  };
-
-  const tryGoogle = async () => {
-    const gPrice = await fetchGooglePrice(symbol);
-    if (gPrice !== null) {
-      return {
-        priceAtEvent: gPrice,
-        price10m: null,
-        price15m: null,
-        price30m: null,
-        price1h: null,
-        price2h: null,
-        price1d: null,
-        price1w: null,
-        source: "google",
-      };
-    }
-    return null;
-  };
-
-  // 1. If a specific source was preferred by user, try it FIRST:
-  if (preferredSource === "yahoo") {
-    const res = await tryYahoo();
-    if (res) return res;
-  } else if (preferredSource === "tradingview") {
-    const res = await tryTradingView();
-    if (res) return res;
-  } else if (preferredSource === "avanza") {
-    const res = await tryAvanza();
-    if (res) return res;
-  } else if (preferredSource === "polygon") {
-    const res = await tryPolygon();
-    if (res) return res;
+  if (preferredSource === "tradingview") {
+    livePrice = await fetchTradingViewPrice(symbol);
+    liveSource = "tradingview";
+  } else if (preferredSource === "avanza" && isSwedishStock(symbol)) {
+    livePrice = await fetchAvanzaPrice(symbol);
+    liveSource = "avanza";
+  } else if (preferredSource === "polygon" && POLYGON_API_KEY) {
+    livePrice = await fetchPolygonPrice(symbol);
+    liveSource = "polygon";
   } else if (preferredSource === "google") {
-    const res = await tryGoogle();
-    if (res) return res;
+    livePrice = await fetchGooglePrice(symbol);
+    liveSource = "google";
   }
 
-  // 2. Fallbacks:
-  if (preferredSource !== "yahoo") {
-    const yahooRes = await tryYahoo();
-    if (yahooRes) return yahooRes;
+  // 3. Combine live quote with multi-horizon timeline
+  if (chartPoints) {
+    return {
+      priceAtEvent: livePrice ?? chartPoints.priceAtEvent,
+      price10m: chartPoints.price10m,
+      price15m: chartPoints.price15m,
+      price30m: chartPoints.price30m,
+      price1h: chartPoints.price1h,
+      price2h: chartPoints.price2h,
+      price1d: chartPoints.price1d,
+      price1w: chartPoints.price1w,
+      source: livePrice !== null ? liveSource : chartPoints.source,
+    };
   }
 
-  if (isSwedishStock(symbol) && preferredSource !== "avanza") {
-    const avanzaRes = await tryAvanza();
-    if (avanzaRes) return avanzaRes;
-  }
-
-  if (preferredSource !== "tradingview") {
-    const tvRes = await tryTradingView();
-    if (tvRes) return tvRes;
-  }
-
-  if (preferredSource !== "polygon") {
-    const polyRes = await tryPolygon();
-    if (polyRes) return polyRes;
-  }
-
-  if (preferredSource !== "google") {
-    const gRes = await tryGoogle();
-    if (gRes) return gRes;
+  // Fallback if no chart data was found
+  if (livePrice !== null) {
+    return {
+      priceAtEvent: livePrice,
+      price10m: null,
+      price15m: null,
+      price30m: null,
+      price1h: null,
+      price2h: null,
+      price1d: null,
+      price1w: null,
+      source: liveSource,
+    };
   }
 
   return {
@@ -822,6 +751,7 @@ async function fetchEventPricePoints(
     source: "none",
   };
 }
+
 
 
 // Fetch historical price from Google Finance

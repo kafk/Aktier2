@@ -817,11 +817,24 @@ export function detectStockFromArticle(article: {
     return { symbol: prefix, name: prefix };
   }
 
-  if (article.ticker) {
-    const cleanTicker = article.ticker.replace(/\.ST$/i, "");
-    return { symbol: cleanTicker, name: cleanTicker };
-  }
-
   return null;
 }
+
+/**
+ * Check if a symbol or name belongs to a Swedish listed company
+ */
+export function isSwedishStockSymbol(symbol: string): boolean {
+
+  if (!symbol) return false;
+  const upper = symbol.toUpperCase().trim();
+  if (upper.endsWith(".ST") || upper.endsWith(".STX") || upper.includes(" ")) return true;
+  const match = STOCK_DICTIONARY.find(
+    (s) => s.symbol.toUpperCase() === upper || s.name.toUpperCase() === upper
+  );
+  if (match) {
+    return match.market === "SE" || match.orderbookId !== undefined;
+  }
+  return false;
+}
+
 
