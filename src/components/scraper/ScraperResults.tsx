@@ -29,12 +29,21 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
     return Array.from(labels).sort();
   }, [articles]);
 
-  // Filter articles by selected labels
+  // Filter articles by selected labels and sort with latest finding first (older downwards)
   const filteredArticles = useMemo(() => {
-    if (selectedLabels.length === 0) return articles;
-    return articles.filter(article =>
-      article.eventType && selectedLabels.includes(article.eventType)
-    );
+    const list = selectedLabels.length === 0
+      ? [...articles]
+      : articles.filter(article =>
+          article.eventType && selectedLabels.includes(article.eventType)
+        );
+
+    return list.sort((a, b) => {
+      const timeA = new Date(a.publishedAt).getTime();
+      const timeB = new Date(b.publishedAt).getTime();
+      const validA = !isNaN(timeA) ? timeA : 0;
+      const validB = !isNaN(timeB) ? timeB : 0;
+      return validB - validA; // Latest date/time at top (first), older downwards
+    });
   }, [articles, selectedLabels]);
 
   const toggleLabel = (label: string) => {
