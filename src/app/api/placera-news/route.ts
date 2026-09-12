@@ -443,7 +443,53 @@ async function fetchSearchPage(keyword: string = ""): Promise<{ articles: Placer
   }
 }
 
-const PLACERA_ACTION_ID = "708d3119fa17aa71cf4358f41047f07e34e278fda9";
+let cachedActionId = "70eccd99aa6c044157fcece52385de54d1c4e66293";
+let actionIdFetchedAt = 0;
+
+async function getPlaceraActionId(): Promise<string> {
+  if (cachedActionId && Date.now() - actionIdFetchedAt < 60 * 60 * 1000) {
+    return cachedActionId;
+  }
+
+  try {
+    const res = await fetch("https://www.placera.se/telegram", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const scriptRegex = /src="(\/_next\/static\/chunks\/[^"]+)"/g;
+      let m;
+      const scriptUrls: string[] = [];
+      while ((m = scriptRegex.exec(html)) !== null) {
+        scriptUrls.push(m[1]);
+      }
+
+      for (const sUrl of scriptUrls) {
+        const sRes = await fetch(`https://www.placera.se${sUrl}`);
+        if (!sRes.ok) continue;
+        const sText = await sRes.text();
+        const hexMatches = sText.match(/["']([a-f0-9]{40,42})["']/g);
+        if (hexMatches) {
+          for (const match of hexMatches) {
+            const cleanId = match.replace(/['"]/g, "");
+            if (cleanId.startsWith("70") || cleanId.length === 40 || cleanId.length === 42) {
+              cachedActionId = cleanId;
+              actionIdFetchedAt = Date.now();
+              console.log(`Discovered Placera Next-Action ID: ${cleanId}`);
+              return cleanId;
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error discovering Placera action ID:", err);
+  }
+
+  return cachedActionId;
+}
 
 function tabToCollectionName(tab: string): string {
   switch (tab) {
@@ -466,13 +512,14 @@ async function fetchPlaceraServerAction(
 ): Promise<{ articles: PlaceraNewsItem[]; bytes: number }> {
   const collectionName = tabToCollectionName(tab);
   const url = `https://www.placera.se/telegram?tab=${tab}`;
+  const actionId = await getPlaceraActionId();
 
   try {
     const res = await fetch(url, {
       method: "POST",
       signal: AbortSignal.timeout(4500),
       headers: {
-        "Next-Action": PLACERA_ACTION_ID,
+        "Next-Action": actionId,
         "Content-Type": "text/plain;charset=UTF-8",
         "Accept": "text/x-component",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
