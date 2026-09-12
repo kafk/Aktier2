@@ -44,71 +44,85 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const articles: YahooNewsItem[] = [];
+  const seenLinks = new Set<string>();
+
+  // 1. Try Yahoo Search API first
   try {
-    // Try Yahoo Finance JSON API first (returns more articles)
-    const jsonApiUrl = `https://query1.finance.yahoo.com/v2/finance/news?symbols=${encodeURIComponent(symbol)}`;
+    const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&newsCount=30`;
+    console.log(`Fetching Yahoo search news: ${searchUrl}`);
 
-    console.log(`Fetching Yahoo news: ${jsonApiUrl}`);
-
-    const response = await fetch(jsonApiUrl, {
+    const searchResponse = await fetch(searchUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
       },
-      next: { revalidate: 300 }, // Cache for 5 minutes
+      next: { revalidate: 300 },
     });
 
-    if (!response.ok) {
-      console.error(`Yahoo JSON API failed: ${response.status}, trying RSS fallback...`);
-      return await fetchRSS(symbol);
-    }
-
-    const data = await response.json() as YahooApiResponse;
-    console.log(`Yahoo API response received`);
-
-    const articles: YahooNewsItem[] = [];
-
-    if (data.Content?.result && Array.isArray(data.Content.result)) {
-      for (const item of data.Content.result) {
-        if (item.title && item.link) {
-          articles.push({
-            title: item.title,
-            link: item.link,
-            pubDate: item.published_at
-              ? new Date(item.published_at * 1000).toISOString()
-              : new Date().toISOString(),
-            description: item.summary || "",
-            source: item.publisher || "Yahoo Finance",
-          });
+    if (searchResponse.ok) {
+      const data = await searchResponse.json();
+      if (data.news && Array.isArray(data.news)) {
+        for (const item of data.news) {
+          if (item.title && item.link && !seenLinks.has(item.link)) {
+            seenLinks.add(item.link);
+            articles.push({
+              title: item.title,
+              link: item.link,
+              pubDate: item.providerPublishTime
+                ? new Date(item.providerPublishTime * 1000).toISOString()
+                : new Date().toISOString(),
+              description: item.summary || "",
+              source: item.publisher || "Yahoo Finance",
+            });
+          }
         }
       }
     }
-
-    console.log(`Yahoo JSON API: parsed ${articles.length} articles for ${symbol}`);
-
-    // If JSON API returned no articles, try RSS fallback
-    if (articles.length === 0) {
-      console.log("JSON API returned 0 articles, trying RSS fallback...");
-      return await fetchRSS(symbol);
-    }
-
-    const result: NewsResponse = {
-      symbol: symbol.toUpperCase(),
-      articles,
-      totalFetched: articles.length,
-      debug: {
-        apiUsed: "json",
-        rawCount: data.Content?.result?.length || 0,
-      },
-    };
-
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error(`Error fetching news for ${symbol}:`, error);
-    // Try RSS fallback on error
-    return await fetchRSS(symbol);
+  } catch (searchError) {
+    console.warn("Yahoo search API failed:", searchError);
   }
+
+  // 2. Also fetch RSS feed for additional articles
+  try {
+    const rssUrl = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(symbol)}&region=US&lang=en-US`;
+    console.log(`Fetching Yahoo RSS: ${rssUrl}`);
+
+    const rssResponse = await fetch(rssUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+      next: { revalidate: 300 },
+    });
+
+    if (rssResponse.ok) {
+      const xml = await rssResponse.text();
+      const rssArticles = parseRSS(xml);
+      for (const item of rssArticles) {
+        if (!seenLinks.has(item.link)) {
+          seenLinks.add(item.link);
+          articles.push(item);
+        }
+      }
+    }
+  } catch (rssError) {
+    console.warn("Yahoo RSS failed:", rssError);
+  }
+
+  // Sort by date (newest first)
+  articles.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+
+  const result: NewsResponse = {
+    symbol: symbol.toUpperCase(),
+    articles,
+    totalFetched: articles.length,
+    debug: {
+      apiUsed: "search+rss",
+      rawCount: articles.length,
+    },
+  };
+
+  return NextResponse.json(result);
 }
 
 // RSS fallback function

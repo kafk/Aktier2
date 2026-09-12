@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
 
-// Verify article content by fetching the page and checking <article> element
+import { STOCK_DICTIONARY, matchStockInArticle } from "@/lib/stockAliases";
+
+// Verify article content by fetching the page and checking content
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -36,49 +38,27 @@ export async function POST(request: NextRequest) {
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    // Extract text ONLY from <article> element
-    const articleElement = $("article").first();
-
+    // Extract text from <article>, <main>, or h1/body
+    let articleElement = $("article").first();
     if (articleElement.length === 0) {
-      console.log("No <article> element found, checking full page");
-      // Fallback: if no article element, this might not be a valid article page
-      return NextResponse.json({
-        verified: false,
-        reason: "No <article> element found on page",
-        matchedStocks: [],
-      });
+      articleElement = $("main").first();
     }
 
-    // Get text content from article only (not related content outside)
-    const articleText = articleElement.text().toLowerCase();
+    const articleText = (articleElement.length > 0 ? articleElement.text() : $("body").text()).toLowerCase();
+    const titleText = $("h1").first().text();
     console.log(`Article text length: ${articleText.length} chars`);
 
     // Check which stocks are mentioned in the article content
     const matchedStocks: string[] = [];
 
-    // Stock aliases for matching
-    const stockAliases: Record<string, string[]> = {
-      "AAPL": ["aapl", "apple"],
-      "MSFT": ["msft", "microsoft"],
-      "GOOGL": ["googl", "google", "alphabet"],
-      "AMZN": ["amzn", "amazon"],
-      "NVDA": ["nvda", "nvidia"],
-      "META": ["meta", "facebook"],
-      "TSLA": ["tsla", "tesla"],
-      "NFLX": ["nflx", "netflix"],
-      "DIS": ["dis", "disney"],
-      "JPM": ["jpm", "jpmorgan", "jp morgan"],
-    };
+    for (const stockSymbol of stocks) {
+      const stockObj = STOCK_DICTIONARY.find(
+        (s) => s.symbol.toUpperCase() === stockSymbol.toUpperCase()
+      ) || { symbol: stockSymbol, name: stockSymbol, aliases: [stockSymbol.toLowerCase()] };
 
-    for (const stock of stocks) {
-      const aliases = stockAliases[stock] || [stock.toLowerCase()];
-
-      for (const alias of aliases) {
-        if (articleText.includes(alias)) {
-          matchedStocks.push(stock);
-          console.log(`Found stock ${stock} (matched: "${alias}")`);
-          break;
-        }
+      if (matchStockInArticle({ title: titleText, description: articleText }, stockObj)) {
+        matchedStocks.push(stockSymbol);
+        console.log(`Found stock ${stockSymbol}`);
       }
     }
 
@@ -87,7 +67,6 @@ export async function POST(request: NextRequest) {
       matchedStocks,
       articleTextLength: articleText.length,
     });
-
   } catch (error) {
     console.error("Verify article error:", error);
     return NextResponse.json(

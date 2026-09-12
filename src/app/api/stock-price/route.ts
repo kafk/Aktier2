@@ -6,9 +6,9 @@ const POLYGON_API_KEY = process.env.POLYGON_API_KEY || process.env.MASSIVE_API_K
 // ============ AVANZA API (Swedish Stocks) ============
 // Common Swedish stocks with their Avanza orderbookIds
 const AVANZA_ORDERBOOK_IDS: Record<string, string> = {
-  "VOLV-B": "5240", "VOLV-B.ST": "5240",
-  "ERIC-B": "5765", "ERIC-B.ST": "5765",
-  "SEB-A": "725", "SEB-A.ST": "725",
+  "VOLV-B": "5240", "VOLV-B.ST": "5240", "VOLV-A": "5239", "VOLV-A.ST": "5239",
+  "ERIC-B": "5765", "ERIC-B.ST": "5765", "ERIC-A": "5764", "ERIC-A.ST": "5764",
+  "SEB-A": "725", "SEB-A.ST": "725", "SEB-C": "726", "SEB-C.ST": "726",
   "SWED-A": "5287", "SWED-A.ST": "5287",
   "HM-B": "5235", "HM-B.ST": "5235",
   "ABB": "5447", "ABB.ST": "5447",
@@ -17,28 +17,46 @@ const AVANZA_ORDERBOOK_IDS: Record<string, string> = {
   "ATCO-B": "46", "ATCO-B.ST": "46",
   "AZN": "3524", "AZN.ST": "3524",
   "SAND": "650", "SAND.ST": "650",
-  "SHB-A": "668", "SHB-A.ST": "668",
-  "SKF-B": "677", "SKF-B.ST": "677",
+  "SHB-A": "668", "SHB-A.ST": "668", "SHB-B": "669", "SHB-B.ST": "669",
+  "SKF-B": "677", "SKF-B.ST": "677", "SKF-A": "676", "SKF-A.ST": "676",
   "TELIA": "5353", "TELIA.ST": "5353",
-  "INVE-B": "5247", "INVE-B.ST": "5247",
+  "TEL2-B": "5351", "TEL2-B.ST": "5351",
+  "INVE-B": "5247", "INVE-B.ST": "5247", "INVE-A": "5246", "INVE-A.ST": "5246",
   "HEXA-B": "5279", "HEXA-B.ST": "5279",
   "SAAB-B": "653", "SAAB-B.ST": "653",
   "NIBE-B": "5284", "NIBE-B.ST": "5284",
   "EVO": "746107", "EVO.ST": "746107",
   "SINCH": "658963", "SINCH.ST": "658963",
   "NDA-SE": "542691", "NDA-SE.ST": "542691",
+  "EMBRAC-B": "607424", "EMBRAC-B.ST": "607424",
+  "ESSITY-B": "725547", "ESSITY-B.ST": "725547", "ESSITY-A": "725546", "ESSITY-A.ST": "725546",
+  "SBB-B": "753514", "SBB-B.ST": "753514", "SBB-D": "981440", "SBB-D.ST": "981440",
+  "EQT": "993351", "EQT.ST": "993351",
+  "BOL": "155", "BOL.ST": "155",
+  "ALFA": "15", "ALFA.ST": "15",
+  "SCA-B": "656", "SCA-B.ST": "656", "SCA-A": "655", "SCA-A.ST": "655",
+  "SKA-B": "672", "SKA-B.ST": "672",
 };
+
+function getNormalizedSwedishSymbol(symbol: string): string {
+  return symbol.toUpperCase().trim().replace(/\s+/g, "-").replace(/_/g, "-");
+}
 
 // Check if symbol is Swedish
 function isSwedishStock(symbol: string): boolean {
-  const upper = symbol.toUpperCase();
-  return upper.endsWith(".ST") || AVANZA_ORDERBOOK_IDS[upper] !== undefined;
+  const norm = getNormalizedSwedishSymbol(symbol);
+  return norm.endsWith(".ST") || AVANZA_ORDERBOOK_IDS[norm] !== undefined || AVANZA_ORDERBOOK_IDS[norm.replace(".ST", "")] !== undefined;
+}
+
+function getAvanzaOrderbookId(symbol: string): string | undefined {
+  const norm = getNormalizedSwedishSymbol(symbol);
+  const withoutSt = norm.replace(".ST", "");
+  return AVANZA_ORDERBOOK_IDS[norm] || AVANZA_ORDERBOOK_IDS[withoutSt];
 }
 
 // Fetch price from Avanza
 async function fetchAvanzaPrice(symbol: string): Promise<number | null> {
-  const upper = symbol.toUpperCase();
-  const orderbookId = AVANZA_ORDERBOOK_IDS[upper] || AVANZA_ORDERBOOK_IDS[upper.replace(".ST", "")];
+  const orderbookId = getAvanzaOrderbookId(symbol);
 
   if (!orderbookId) {
     console.log(`No Avanza orderbookId for ${symbol}`);
