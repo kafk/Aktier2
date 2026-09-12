@@ -410,7 +410,9 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                         {/* Meta info */}
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs text-muted-foreground">
-                            {formatDate(article.publishedAt)}
+                            <span className="font-semibold text-foreground/80">{cleanSource(article.source)}</span>
+                            <span className="mx-1.5">•</span>
+                            <span>{formatDate(article.publishedAt)}</span>
                             {article.priceAtEvent && (
                               <span className="ml-1 font-mono font-medium">
                                 @ {cur}{article.priceAtEvent.toFixed(2)}
@@ -459,21 +461,6 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                               </Badge>
                             )}
                           </div>
-                        </div>
-                        {/* Source & Link */}
-                        <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                          <span className="font-semibold text-foreground/80">{cleanSource(article.source)}</span>
-                          <span>•</span>
-                          <a
-                            href={article.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1 truncate max-w-[420px]"
-                            title={article.url}
-                          >
-                            <span className="truncate">{article.url}</span>
-                            <ExternalLink className="h-3 w-3 inline shrink-0 opacity-70" />
-                          </a>
                         </div>
                       </div>
 
