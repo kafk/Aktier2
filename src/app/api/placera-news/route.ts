@@ -1045,22 +1045,41 @@ function parseHtml(html: string, category: string, sourceUrl: string): PlaceraNe
   return articles;
 }
 
+function getStockholmOffset(year: number, month: number, day: number): string {
+  try {
+    const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    const str = d.toLocaleString("en-US", { timeZone: "Europe/Stockholm", timeZoneName: "shortOffset" });
+    const match = str.match(/GMT([+-]\d+)/);
+    if (match) {
+      const h = parseInt(match[1], 10);
+      const sign = h >= 0 ? "+" : "-";
+      return `${sign}${Math.abs(h).toString().padStart(2, "0")}:00`;
+    }
+  } catch (e) {}
+  return (month >= 4 && month <= 9) || (month === 3 && day >= 25) || (month === 10 && day <= 25) ? "+02:00" : "+01:00";
+}
+
 function parseSwedishDate(dateStr: string): string {
   // Handle various Swedish date formats
   const now = new Date();
 
-  // Format: ISO date "2025-06-08T12:00:00" or "2025-06-08"
-  if (dateStr.includes("T") || /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+  // If already ends with Z or has an explicit timezone offset like +01:00 or -04:00
+  if (/[Zz]|[+-]\d{2}:\d{2}$/.test(dateStr)) {
     const parsed = new Date(dateStr);
-    if (!isNaN(parsed.getTime())) {
-      return parsed.toISOString();
-    }
+    if (!isNaN(parsed.getTime())) return parsed.toISOString();
   }
 
-  // Format: "2025-12-31 14:30"
-  const isoMatch = dateStr.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})/);
+  // Format: "2025-12-31 14:30" or "2025-12-31T14:30:00"
+  const isoMatch = dateStr.match(/(\d{4})-(\d{2})-(\d{2})[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (isoMatch) {
-    return new Date(`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}T${isoMatch[4].padStart(2, "0")}:${isoMatch[5]}:00`).toISOString();
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10);
+    const d = parseInt(isoMatch[3], 10);
+    const h = isoMatch[4].padStart(2, "0");
+    const min = isoMatch[5];
+    const sec = isoMatch[6] || "00";
+    const offset = getStockholmOffset(y, m, d);
+    return new Date(`${y}-${isoMatch[2]}-${isoMatch[3]}T${h}:${min}:${sec}${offset}`).toISOString();
   }
 
   // Format: "8 juni, 10:19" or "31 dec 14:30" or "8 juni 2025 10:19"
@@ -1081,9 +1100,9 @@ function parseSwedishDate(dateStr: string): string {
 
   const swedishMatch = dateStr.match(/(\d{1,2})\s+([a-zåäö]+),?\s*(?:(\d{4})\s+)?(\d{1,2}):(\d{2})/i);
   if (swedishMatch) {
-    const day = swedishMatch[1].padStart(2, "0");
+    const day = parseInt(swedishMatch[1], 10);
     const monthName = swedishMatch[2].toLowerCase();
-    const month = monthMap[monthName] || "01";
+    const month = parseInt(monthMap[monthName] || "01", 10);
     let year = swedishMatch[3] ? parseInt(swedishMatch[3], 10) : now.getFullYear();
     const hour = swedishMatch[4].padStart(2, "0");
     const minute = swedishMatch[5];
@@ -1091,19 +1110,27 @@ function parseSwedishDate(dateStr: string): string {
     // If no year specified, and month is after current month, it belongs to previous year
     if (!swedishMatch[3]) {
       const currentMonth = now.getMonth() + 1;
-      if (parseInt(month, 10) > currentMonth) {
+      if (month > currentMonth) {
         year = now.getFullYear() - 1;
       }
     }
 
-    return new Date(`${year}-${month}-${day}T${hour}:${minute}:00`).toISOString();
+    const offset = getStockholmOffset(year, month, day);
+    const dStr = day.toString().padStart(2, "0");
+    const mStr = month.toString().padStart(2, "0");
+    return new Date(`${year}-${mStr}-${dStr}T${hour}:${minute}:00${offset}`).toISOString();
   }
 
   // Format: "14:30" (today)
   const timeOnlyMatch = dateStr.match(/^(\d{1,2}):(\d{2})$/);
   if (timeOnlyMatch) {
-    const today = now.toISOString().split("T")[0];
-    return new Date(`${today}T${timeOnlyMatch[1].padStart(2, "0")}:${timeOnlyMatch[2]}:00`).toISOString();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+    const offset = getStockholmOffset(y, m, d);
+    const dStr = d.toString().padStart(2, "0");
+    const mStr = m.toString().padStart(2, "0");
+    return new Date(`${y}-${mStr}-${dStr}T${timeOnlyMatch[1].padStart(2, "0")}:${timeOnlyMatch[2]}:00${offset}`).toISOString();
   }
 
   // Return current time if parsing fails
