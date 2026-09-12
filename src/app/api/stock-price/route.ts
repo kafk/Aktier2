@@ -418,20 +418,25 @@ async function fetchYahooPrice(symbol: string): Promise<PriceResponse> {
   }
 }
 
-// Fetch historical price from Yahoo Finance
-async function fetchYahooHistoricalPrice(
-  symbol: string,
-  targetTime: Date
-): Promise<number | null> {
+// Cache for Yahoo chart data (10 min cache to avoid rate limits)
+interface YahooChartCacheEntry {
+  timestamps: number[];
+  closes: (number | null)[];
+  fetchedAt: number;
+}
+const yahooChartCache = new Map<string, YahooChartCacheEntry>();
+const YAHOO_CHART_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function getYahooChartData(symbol: string, range: string): Promise<YahooChartCacheEntry | null> {
+  const cleanSymbol = symbol.trim();
+  const cacheKey = `${cleanSymbol.toUpperCase()}-${range}`;
+  const cached = yahooChartCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < YAHOO_CHART_TTL) {
+    return cached;
+  }
+
   try {
-    const now = Math.floor(Date.now() / 1000);
-    const target = Math.floor(targetTime.getTime() / 1000);
-
-    const daysDiff = Math.ceil((now - target) / (24 * 60 * 60));
-    const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : daysDiff <= 30 ? "1mo" : "3mo";
-
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=${range}`;
-
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}?interval=5m&range=${range}`;
     const response = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -439,46 +444,137 @@ async function fetchYahooHistoricalPrice(
     });
 
     if (!response.ok) {
-      console.error(`Yahoo historical HTTP ${response.status} for ${symbol}`);
+      console.error(`Yahoo chart HTTP ${response.status} for ${symbol}`);
       return null;
     }
 
     const data = await response.json();
     const result = data.chart?.result?.[0];
-    if (!result) return null;
+    if (!result || !result.timestamp || !result.indicators?.quote?.[0]?.close) return null;
 
-    const timestamps = result.timestamp;
-    const quotes = result.indicators?.quote?.[0];
-
-    if (!timestamps || !quotes?.close) return null;
-
-    // Find the closest price to target time
-    let closestIndex = 0;
-    let closestDiff = Math.abs(timestamps[0] - target);
-
-    for (let i = 1; i < timestamps.length; i++) {
-      const diff = Math.abs(timestamps[i] - target);
-      if (diff < closestDiff) {
-        closestDiff = diff;
-        closestIndex = i;
-      }
-    }
-
-    // Return the price, or search nearby if null
-    for (let offset = 0; offset <= 5; offset++) {
-      if (quotes.close[closestIndex + offset] !== null && quotes.close[closestIndex + offset] !== undefined) {
-        return quotes.close[closestIndex + offset];
-      }
-      if (quotes.close[closestIndex - offset] !== null && quotes.close[closestIndex - offset] !== undefined) {
-        return quotes.close[closestIndex - offset];
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.error(`Error fetching Yahoo historical price for ${symbol}:`, error);
+    const entry: YahooChartCacheEntry = {
+      timestamps: result.timestamp,
+      closes: result.indicators.quote[0].close,
+      fetchedAt: Date.now(),
+    };
+    yahooChartCache.set(cacheKey, entry);
+    return entry;
+  } catch (err) {
+    console.error(`Error fetching Yahoo chart for ${symbol}:`, err);
     return null;
   }
+}
+
+function findClosestPriceInChart(chart: YahooChartCacheEntry, targetSec: number): number | null {
+  if (!chart.timestamps || !chart.timestamps.length || !chart.closes || !chart.closes.length) return null;
+  let closestIndex = 0;
+  let closestDiff = Math.abs(chart.timestamps[0] - targetSec);
+
+  for (let i = 1; i < chart.timestamps.length; i++) {
+    const diff = Math.abs(chart.timestamps[i] - targetSec);
+    if (diff < closestDiff) {
+      closestDiff = diff;
+      closestIndex = i;
+    }
+  }
+
+  // Check closest bar and nearby non-null bars
+  for (let offset = 0; offset <= 5; offset++) {
+    const p1 = chart.closes[closestIndex + offset];
+    if (p1 !== null && p1 !== undefined) return p1;
+    const p2 = chart.closes[closestIndex - offset];
+    if (p2 !== null && p2 !== undefined) return p2;
+  }
+  return null;
+}
+
+// Fetch historical price from Yahoo Finance using cache
+async function fetchYahooHistoricalPrice(
+  symbol: string,
+  targetTime: Date
+): Promise<number | null> {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const targetSec = Math.floor(targetTime.getTime() / 1000);
+
+  const daysDiff = Math.ceil((nowSec - targetSec) / (24 * 60 * 60));
+  const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : daysDiff <= 30 ? "1mo" : "3mo";
+
+  const chart = await getYahooChartData(symbol, range);
+  if (!chart) return null;
+
+  return findClosestPriceInChart(chart, targetSec);
+}
+
+// Fetch all price points for an event (atEvent, +1h, +1d) in one fast call
+async function fetchEventPricePoints(
+  symbol: string,
+  eventTime: Date,
+  source: string = "auto"
+): Promise<{
+  priceAtEvent: number | null;
+  price1h: number | null;
+  price1d: number | null;
+  source: string;
+}> {
+  if (!symbol || symbol.toUpperCase() === "MARKET") {
+    return { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
+  }
+
+  // Swedish stock handling
+  if (isSwedishStock(symbol)) {
+    const avanzaPrice = await fetchAvanzaPrice(symbol);
+    if (avanzaPrice !== null) {
+      return { priceAtEvent: avanzaPrice, price1h: null, price1d: null, source: "avanza" };
+    }
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const eventSec = Math.floor(eventTime.getTime() / 1000);
+  const time1hSec = eventSec + 3600;
+  const time1dSec = eventSec + 86400;
+
+  const daysDiff = Math.ceil((nowSec - eventSec) / (24 * 60 * 60));
+  const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : daysDiff <= 30 ? "1mo" : "3mo";
+
+  // 1. Try Yahoo cached chart (extracts all 3 points from the same chart)
+  const chart = await getYahooChartData(symbol, range);
+  if (chart) {
+    const atEvent = findClosestPriceInChart(chart, eventSec);
+    const at1h = nowSec >= time1hSec ? findClosestPriceInChart(chart, time1hSec) : null;
+    const at1d = nowSec >= time1dSec ? findClosestPriceInChart(chart, time1dSec) : null;
+    if (atEvent !== null) {
+      return {
+        priceAtEvent: atEvent,
+        price1h: at1h,
+        price1d: at1d,
+        source: "yahoo",
+      };
+    }
+  }
+
+  // 2. Try TradingView
+  const tvPrice = await fetchTradingViewPrice(symbol);
+  if (tvPrice !== null) {
+    return {
+      priceAtEvent: tvPrice,
+      price1h: null,
+      price1d: null,
+      source: "tradingview",
+    };
+  }
+
+  // 3. Fallback to Google quote
+  const gPrice = await fetchGooglePrice(symbol);
+  if (gPrice !== null) {
+    return {
+      priceAtEvent: gPrice,
+      price1h: null,
+      price1d: null,
+      source: "google",
+    };
+  }
+
+  return { priceAtEvent: null, price1h: null, price1d: null, source: "none" };
 }
 
 // Fetch historical price from Google Finance
@@ -830,7 +926,8 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const symbol = searchParams.get("symbol");
   const timestamp = searchParams.get("timestamp");
-  const source = searchParams.get("source") || "auto"; // "auto" | "yahoo" | "polygon" | "google" | "avanza"
+  const eventTimestamp = searchParams.get("eventTimestamp");
+  const source = searchParams.get("source") || "auto"; // "auto" | "yahoo" | "polygon" | "google" | "avanza" | "tradingview"
 
   if (!symbol) {
     return NextResponse.json(
@@ -839,7 +936,21 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // If timestamp provided, fetch historical price
+  // If eventTimestamp provided, fetch all 3 points (atEvent, 1h, 1d) in one fast call
+  if (eventTimestamp) {
+    const targetTime = new Date(eventTimestamp);
+    const result = await fetchEventPricePoints(symbol, targetTime, source);
+    return NextResponse.json({
+      symbol,
+      eventTimestamp,
+      priceAtEvent: result.priceAtEvent,
+      price1h: result.price1h,
+      price1d: result.price1d,
+      source: result.source,
+    });
+  }
+
+  // If single timestamp provided, fetch historical price
   if (timestamp) {
     const targetTime = new Date(timestamp);
     const result = await fetchHistoricalPriceWithFallback(symbol, targetTime, source);
