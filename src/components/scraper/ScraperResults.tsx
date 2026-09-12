@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { NewsArticle } from "@/types/scraper";
 import { getImpactVerdict1h, getImpactVerdict1d } from "@/types/priceTracking";
+import { isSwedishStockSymbol } from "@/lib/stockAliases";
+
 
 interface ScraperResultsProps {
   articles: NewsArticle[];
@@ -256,8 +258,9 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
               const is1dUnavailable = hasPriceAtEvent && !has1dData;
               const isExpanded = expandedId === article.id;
 
-              const isSek = article.matchedStock.endsWith(".ST") || article.matchedStock.includes(" ") || article.priceSource === "avanza";
+              const isSek = isSwedishStockSymbol(article.matchedStock) || article.matchedStock.endsWith(".ST") || article.matchedStock.includes(" ") || article.priceSource === "avanza";
               const cur = isSek ? "SEK " : "$";
+
 
               return (
                 <div
