@@ -382,12 +382,22 @@ export default function ScraperPage() {
 
     const newCount = notificationCount + 1;
 
-    setScraperState((prev) => ({
-      ...prev,
-      matchedArticles: [newsArticle, ...prev.matchedArticles],
-      notificationCount: newCount,
-      totalArticlesScanned: articlesScanned,
-    }));
+    setScraperState((prev) => {
+      const updatedList = [newsArticle, ...prev.matchedArticles.filter(a => a.id !== newsArticle.id)];
+      updatedList.sort((a, b) => {
+        const timeA = new Date(a.publishedAt).getTime();
+        const timeB = new Date(b.publishedAt).getTime();
+        const validA = !isNaN(timeA) ? timeA : 0;
+        const validB = !isNaN(timeB) ? timeB : 0;
+        return validB - validA; // Newest first at top, older downwards
+      });
+      return {
+        ...prev,
+        matchedArticles: updatedList,
+        notificationCount: newCount,
+        totalArticlesScanned: articlesScanned,
+      };
+    });
 
     // Save to localStorage for backtesting (merge with existing, avoid duplicates)
     try {
@@ -396,8 +406,13 @@ export default function ScraperPage() {
         a.title === newsArticle.title && a.matchedStock === newsArticle.matchedStock
       );
       if (!isDuplicate) {
-        const updated = [newsArticle, ...existing].slice(0, 1000); // Keep max 1000
-        localStorage.setItem("scraped-articles", JSON.stringify(updated));
+        const updated = [newsArticle, ...existing];
+        updated.sort((a: NewsArticle, b: NewsArticle) => {
+          const timeA = new Date(a.publishedAt).getTime();
+          const timeB = new Date(b.publishedAt).getTime();
+          return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+        });
+        localStorage.setItem("scraped-articles", JSON.stringify(updated.slice(0, 1000)));
       }
     } catch (e) {
       console.error("Failed to save article to localStorage:", e);
