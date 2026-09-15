@@ -522,9 +522,14 @@ interface YahooChartCacheEntry {
 const yahooChartCache = new Map<string, YahooChartCacheEntry>();
 const YAHOO_CHART_TTL = 10 * 60 * 1000; // 10 minutes
 
-async function getYahooChartData(symbol: string, range: string): Promise<YahooChartCacheEntry | null> {
+async function getYahooChartData(
+  symbol: string,
+  rangeOrOptions: string | { range?: string; interval?: string; period1?: number; period2?: number }
+): Promise<YahooChartCacheEntry | null> {
+  const options = typeof rangeOrOptions === "string" ? { range: rangeOrOptions } : rangeOrOptions;
+  const interval = options.interval || (options.range && ["1y", "2y", "5y", "max"].includes(options.range) ? "1d" : "5m");
   const yahooSymbol = getYahooSymbol(symbol);
-  const cacheKey = `${yahooSymbol}-${range}`;
+  const cacheKey = `${yahooSymbol}-${options.range || "custom"}-${interval}-${options.period1 || ""}-${options.period2 || ""}`;
   const cached = yahooChartCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < YAHOO_CHART_TTL) {
     return cached;
@@ -537,7 +542,16 @@ async function getYahooChartData(symbol: string, range: string): Promise<YahooCh
 
   for (const sym of symbolsToTry) {
     try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&range=${range}`;
+      let query = `interval=${interval}`;
+      if (options.period1 && options.period2) {
+        query += `&period1=${options.period1}&period2=${options.period2}`;
+      } else if (options.range) {
+        query += `&range=${options.range}`;
+      } else {
+        query += `&range=1mo`;
+      }
+
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?${query}`;
       const response = await fetch(url, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -578,11 +592,11 @@ function findClosestPriceInChart(chart: YahooChartCacheEntry, targetSec: number)
   }
 
   // Check closest bar and nearby non-null bars
-  for (let offset = 0; offset <= 5; offset++) {
+  for (let offset = 0; offset <= 10; offset++) {
     const p1 = chart.closes[closestIndex + offset];
-    if (p1 !== null && p1 !== undefined) return p1;
+    if (p1 !== null && p1 !== undefined && !isNaN(p1)) return p1;
     const p2 = chart.closes[closestIndex - offset];
-    if (p2 !== null && p2 !== undefined) return p2;
+    if (p2 !== null && p2 !== undefined && !isNaN(p2)) return p2;
   }
   return null;
 }
@@ -596,9 +610,13 @@ async function fetchYahooHistoricalPrice(
   const targetSec = Math.floor(targetTime.getTime() / 1000);
 
   const daysDiff = Math.ceil((nowSec - targetSec) / (24 * 60 * 60));
-  const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : daysDiff <= 30 ? "1mo" : "3mo";
+  const isRecent = daysDiff <= 45;
+  const range = isRecent
+    ? (daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : "1mo")
+    : (daysDiff <= 365 ? "1y" : daysDiff <= 730 ? "2y" : "5y");
+  const interval = isRecent ? "5m" : "1d";
 
-  const chart = await getYahooChartData(symbol, range);
+  const chart = await getYahooChartData(symbol, { range, interval });
   if (!chart) return null;
 
   return findClosestPriceInChart(chart, targetSec);
@@ -646,9 +664,10 @@ async function fetchEventPricePoints(
   const time1wSec = eventSec + 7 * 86400;
 
   const daysDiff = Math.ceil((nowSec - eventSec) / (24 * 60 * 60));
-  const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : daysDiff <= 30 ? "1mo" : "3mo";
+  const isRecent = daysDiff <= 45;
+  const isToday = daysDiff <= 0;
 
-  // 1. Try to fetch full chart data for multi-horizon resolution
+  // 1. Try to fetch chart data (5m for recent <= 45 days, 1d for older news up to 5 years)
   let chartPoints: {
     priceAtEvent: number | null;
     price10m: number | null;
@@ -662,57 +681,85 @@ async function fetchEventPricePoints(
   } | null = null;
 
   try {
-    const chart = await getYahooChartData(symbol, range);
-    if (chart) {
-      const atEvent = findClosestPriceInChart(chart, eventSec);
-      const at10m = nowSec >= time10mSec ? findClosestPriceInChart(chart, time10mSec) : null;
-      const at15m = nowSec >= time15mSec ? findClosestPriceInChart(chart, time15mSec) : null;
-      const at30m = nowSec >= time30mSec ? findClosestPriceInChart(chart, time30mSec) : null;
-      const at1h = nowSec >= time1hSec ? findClosestPriceInChart(chart, time1hSec) : null;
-      const at2h = nowSec >= time2hSec ? findClosestPriceInChart(chart, time2hSec) : null;
-      const at1d = nowSec >= time1dSec ? findClosestPriceInChart(chart, time1dSec) : null;
-      const at1w = nowSec >= time1wSec ? findClosestPriceInChart(chart, time1wSec) : null;
+    if (isRecent) {
+      const range = daysDiff <= 1 ? "1d" : daysDiff <= 5 ? "5d" : "1mo";
+      const chart = await getYahooChartData(symbol, { range, interval: "5m" });
+      if (chart) {
+        const atEvent = findClosestPriceInChart(chart, eventSec);
+        const at10m = nowSec >= time10mSec ? findClosestPriceInChart(chart, time10mSec) : null;
+        const at15m = nowSec >= time15mSec ? findClosestPriceInChart(chart, time15mSec) : null;
+        const at30m = nowSec >= time30mSec ? findClosestPriceInChart(chart, time30mSec) : null;
+        const at1h = nowSec >= time1hSec ? findClosestPriceInChart(chart, time1hSec) : null;
+        const at2h = nowSec >= time2hSec ? findClosestPriceInChart(chart, time2hSec) : null;
+        const at1d = nowSec >= time1dSec ? findClosestPriceInChart(chart, time1dSec) : null;
+        const at1w = nowSec >= time1wSec ? findClosestPriceInChart(chart, time1wSec) : null;
 
-      if (atEvent !== null) {
-        chartPoints = {
-          priceAtEvent: atEvent,
-          price10m: at10m,
-          price15m: at15m,
-          price30m: at30m,
-          price1h: at1h,
-          price2h: at2h,
-          price1d: at1d,
-          price1w: at1w,
-          source: "yahoo",
-        };
+        if (atEvent !== null) {
+          chartPoints = {
+            priceAtEvent: atEvent,
+            price10m: at10m,
+            price15m: at15m,
+            price30m: at30m,
+            price1h: at1h,
+            price2h: at2h,
+            price1d: at1d,
+            price1w: at1w,
+            source: preferredSource === "tradingview" ? "tradingview" : "yahoo",
+          };
+        }
+      }
+    } else {
+      // For older news (> 45 days up to 5 years), use daily candles
+      const range = daysDiff <= 365 ? "1y" : daysDiff <= 730 ? "2y" : "5y";
+      const dailyChart = await getYahooChartData(symbol, { range, interval: "1d" });
+      if (dailyChart) {
+        const atEvent = findClosestPriceInChart(dailyChart, eventSec);
+        const at1d = nowSec >= time1dSec ? findClosestPriceInChart(dailyChart, time1dSec) : null;
+        const at1w = nowSec >= time1wSec ? findClosestPriceInChart(dailyChart, time1wSec) : null;
+
+        if (atEvent !== null) {
+          chartPoints = {
+            priceAtEvent: atEvent,
+            price10m: null,
+            price15m: null,
+            price30m: null,
+            price1h: null,
+            price2h: null,
+            price1d: at1d,
+            price1w: at1w,
+            source: preferredSource === "tradingview" ? "tradingview" : "yahoo",
+          };
+        }
       }
     }
   } catch (err) {
     console.warn(`Chart fetch failed for ${symbol}:`, err);
   }
 
-  // 2. Fetch price from preferred live provider if requested (TradingView, Avanza, Polygon, Google)
+  // 2. Fetch price from preferred live provider ONLY IF THE EVENT HAPPENED TODAY
   let livePrice: number | null = null;
-  let liveSource = "auto";
+  let liveSource = preferredSource;
 
-  if (preferredSource === "tradingview") {
-    livePrice = await fetchTradingViewPrice(symbol);
-    liveSource = "tradingview";
-  } else if (preferredSource === "avanza" && isSwedishStock(symbol)) {
-    livePrice = await fetchAvanzaPrice(symbol);
-    liveSource = "avanza";
-  } else if (preferredSource === "polygon" && POLYGON_API_KEY) {
-    livePrice = await fetchPolygonPrice(symbol);
-    liveSource = "polygon";
-  } else if (preferredSource === "google") {
-    livePrice = await fetchGooglePrice(symbol);
-    liveSource = "google";
+  if (isToday) {
+    if (preferredSource === "tradingview") {
+      livePrice = await fetchTradingViewPrice(symbol);
+      liveSource = "tradingview";
+    } else if (preferredSource === "avanza" && isSwedishStock(symbol)) {
+      livePrice = await fetchAvanzaPrice(symbol);
+      liveSource = "avanza";
+    } else if (preferredSource === "polygon" && POLYGON_API_KEY) {
+      livePrice = await fetchPolygonPrice(symbol);
+      liveSource = "polygon";
+    } else if (preferredSource === "google") {
+      livePrice = await fetchGooglePrice(symbol);
+      liveSource = "google";
+    }
   }
 
-  // 3. Combine live quote with multi-horizon timeline
+  // 3. Combine results
   if (chartPoints) {
     return {
-      priceAtEvent: livePrice ?? chartPoints.priceAtEvent,
+      priceAtEvent: (isToday && livePrice !== null) ? livePrice : chartPoints.priceAtEvent,
       price10m: chartPoints.price10m,
       price15m: chartPoints.price15m,
       price30m: chartPoints.price30m,
@@ -720,11 +767,11 @@ async function fetchEventPricePoints(
       price2h: chartPoints.price2h,
       price1d: chartPoints.price1d,
       price1w: chartPoints.price1w,
-      source: livePrice !== null ? liveSource : chartPoints.source,
+      source: chartPoints.source,
     };
   }
 
-  // Fallback if no chart data was found
+  // Fallback for today's live price
   if (livePrice !== null) {
     return {
       priceAtEvent: livePrice,
@@ -1012,20 +1059,15 @@ async function fetchHistoricalPriceWithFallback(
   targetTime: Date,
   preferredSource: string = "auto"
 ): Promise<{ price: number | null; source: string }> {
-  const tryAvanza = async () => {
-    const avanzaPrice = await fetchAvanzaPrice(symbol);
-    if (avanzaPrice !== null) {
-      console.log(`Using Avanza current quote for ${symbol}`);
-      return { price: avanzaPrice, source: "avanza" };
-    }
-    return null;
-  };
+  const nowSec = Math.floor(Date.now() / 1000);
+  const targetSec = Math.floor(targetTime.getTime() / 1000);
+  const daysDiff = Math.ceil((nowSec - targetSec) / (24 * 60 * 60));
+  const isToday = daysDiff <= 0;
 
-  const tryTradingView = async () => {
-    const tvPrice = await fetchTradingViewPrice(symbol);
-    if (tvPrice !== null) {
-      console.log(`Using TradingView quote for ${symbol}`);
-      return { price: tvPrice, source: "tradingview" };
+  const tryYahoo = async () => {
+    const yahooPrice = await fetchYahooHistoricalPrice(symbol, targetTime);
+    if (yahooPrice !== null) {
+      return { price: yahooPrice, source: preferredSource === "tradingview" ? "tradingview" : "yahoo" };
     }
     return null;
   };
@@ -1039,10 +1081,20 @@ async function fetchHistoricalPriceWithFallback(
     return null;
   };
 
-  const tryYahoo = async () => {
-    const yahooPrice = await fetchYahooHistoricalPrice(symbol, targetTime);
-    if (yahooPrice !== null) {
-      return { price: yahooPrice, source: "yahoo" };
+  const tryTradingView = async () => {
+    if (!isToday) return null; // TradingView scanner only has live today quotes
+    const tvPrice = await fetchTradingViewPrice(symbol);
+    if (tvPrice !== null) {
+      return { price: tvPrice, source: "tradingview" };
+    }
+    return null;
+  };
+
+  const tryAvanza = async () => {
+    if (!isToday) return null; // Avanza live quote is for today
+    const avanzaPrice = await fetchAvanzaPrice(symbol);
+    if (avanzaPrice !== null) {
+      return { price: avanzaPrice, source: "avanza" };
     }
     return null;
   };
@@ -1055,12 +1107,26 @@ async function fetchHistoricalPriceWithFallback(
     return null;
   };
 
-  // If user requested a specific source, attempt it first
-  if (preferredSource === "avanza") {
-    const res = await tryAvanza();
-    if (res) return res;
-  } else if (preferredSource === "tradingview") {
+  // For historical dates in the past, always fetch from historical chart providers first
+  if (!isToday) {
+    const yahooRes = await tryYahoo();
+    if (yahooRes) return yahooRes;
+
+    const polyRes = await tryPolygon();
+    if (polyRes) return polyRes;
+
+    const googleRes = await tryGoogle();
+    if (googleRes) return googleRes;
+
+    return { price: null, source: "none" };
+  }
+
+  // For today's events, try preferred source first
+  if (preferredSource === "tradingview") {
     const res = await tryTradingView();
+    if (res) return res;
+  } else if (preferredSource === "avanza") {
+    const res = await tryAvanza();
     if (res) return res;
   } else if (preferredSource === "polygon") {
     const res = await tryPolygon();
@@ -1068,33 +1134,17 @@ async function fetchHistoricalPriceWithFallback(
   } else if (preferredSource === "yahoo") {
     const res = await tryYahoo();
     if (res) return res;
-  } else if (preferredSource === "google") {
-    const res = await tryGoogle();
-    if (res) return res;
   }
 
-  // Automatic smart fallback:
-  // For Swedish stocks, try Avanza first
-  if (isSwedishStock(symbol)) {
-    const avanzaRes = await tryAvanza();
-    if (avanzaRes) return avanzaRes;
-  }
-
-  // Try Polygon (most reliable for US intraday)
-  const polygonRes = await tryPolygon();
-  if (polygonRes) return polygonRes;
-
-  // Try Yahoo
-  const yahooRes = await tryYahoo();
-  if (yahooRes) return yahooRes;
-
-  // Try TradingView
+  // Fallback chain for today
   const tvRes = await tryTradingView();
   if (tvRes) return tvRes;
 
-  // Fallback to Google
-  const googleRes = await tryGoogle();
-  if (googleRes) return googleRes;
+  const avanzaRes = await tryAvanza();
+  if (avanzaRes) return avanzaRes;
+
+  const yahooRes = await tryYahoo();
+  if (yahooRes) return yahooRes;
 
   return { price: null, source: "none" };
 }
