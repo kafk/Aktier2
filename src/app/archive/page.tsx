@@ -23,6 +23,10 @@ import {
   CheckSquare,
   Square,
   Sunrise,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
@@ -85,6 +89,8 @@ export default function ArchivePage() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(100);
 
   const [classifications] = useLocalStorage<Classification[]>(
     "classifications",
@@ -277,6 +283,27 @@ export default function ArchivePage() {
       });
   }, [articles, selectedStock, selectedSentiment, selectedEventType, searchQuery, sortField, sortDirection]);
 
+  // Total pages
+  const totalPages = Math.max(1, Math.ceil(filteredArticles.length / pageSize));
+
+  // Reset to page 1 on filter or search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedStock, selectedSentiment, selectedEventType, searchQuery, sortField, sortDirection, pageSize]);
+
+  // Clamp current page if total pages decreases
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  // Paginated articles for the current page
+  const paginatedArticles = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredArticles.slice(start, start + pageSize);
+  }, [filteredArticles, currentPage, pageSize]);
+
   // Stats Summary
   const stats = useMemo(() => {
     const total = articles.length;
@@ -310,29 +337,41 @@ export default function ArchivePage() {
     });
   };
 
+  const isAllPageSelected =
+    paginatedArticles.length > 0 &&
+    paginatedArticles.every((a) => selectedIds.has(a.id));
+
   const isAllFilteredSelected =
     filteredArticles.length > 0 &&
     filteredArticles.every((a) => selectedIds.has(a.id));
 
-  const isSomeFilteredSelected =
-    filteredArticles.some((a) => selectedIds.has(a.id)) && !isAllFilteredSelected;
+  const isSomePageSelected =
+    paginatedArticles.some((a) => selectedIds.has(a.id)) && !isAllPageSelected;
 
-  const toggleSelectAll = () => {
-    if (isAllFilteredSelected) {
-      // Deselect all filtered
+  const toggleSelectPage = () => {
+    if (isAllPageSelected) {
+      // Deselect page
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        filteredArticles.forEach((a) => next.delete(a.id));
+        paginatedArticles.forEach((a) => next.delete(a.id));
         return next;
       });
     } else {
-      // Select all filtered
+      // Select page
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        filteredArticles.forEach((a) => next.add(a.id));
+        paginatedArticles.forEach((a) => next.add(a.id));
         return next;
       });
     }
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      filteredArticles.forEach((a) => next.add(a.id));
+      return next;
+    });
   };
 
   const handleClearSelection = () => {
@@ -807,7 +846,7 @@ export default function ArchivePage() {
           <CardContent className="p-0">
             {/* Selection Banner */}
             {selectedIds.size > 0 && (
-              <div className="flex items-center justify-between bg-primary/10 border-b border-primary/20 px-4 py-2.5 text-xs text-foreground">
+              <div className="flex items-center justify-between bg-primary/10 border-b border-primary/20 px-4 py-2.5 text-xs text-foreground flex-wrap gap-2">
                 <div className="flex items-center gap-2 font-medium">
                   <CheckSquare className="h-4 w-4 text-primary" />
                   <span>
@@ -815,12 +854,21 @@ export default function ArchivePage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={toggleSelectAll}
-                    className="text-primary font-semibold hover:underline mr-2"
-                  >
-                    {isAllFilteredSelected ? "Avmarkera alla i tabell" : `Markera alla (${filteredArticles.length})`}
-                  </button>
+                  {selectedIds.size < filteredArticles.length ? (
+                    <button
+                      onClick={selectAllFiltered}
+                      className="text-primary font-semibold hover:underline mr-2"
+                    >
+                      Markera alla {filteredArticles.length} matchande rapporter
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleClearSelection}
+                      className="text-primary font-semibold hover:underline mr-2"
+                    >
+                      Avmarkera alla ({filteredArticles.length})
+                    </button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -850,251 +898,364 @@ export default function ArchivePage() {
                 </Link>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left border-collapse">
-                  <thead className="bg-muted/50 text-xs font-semibold uppercase text-muted-foreground border-b select-none">
-                    <tr>
-                      <th className="py-3 px-3 w-10 text-center">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer align-middle"
-                          checked={isAllFilteredSelected}
-                          ref={(el) => {
-                            if (el) el.indeterminate = isSomeFilteredSelected;
-                          }}
-                          onChange={toggleSelectAll}
-                          title={isAllFilteredSelected ? "Avmarkera alla synliga" : "Markera alla synliga"}
-                        />
-                      </th>
-                      {renderSortHeader("stock", "Aktie", "left", "px-4")}
-                      {renderSortHeader("title", "Rubrik & Källa", "left", "px-4 min-w-[300px]")}
-                      {renderSortHeader("type", "Typ", "left", "px-3")}
-                      {renderSortHeader("date", "Datum & År", "left", "px-3 min-w-[105px]")}
-                      {renderSortHeader("priceAtEvent", "Eventkurs", "right", "px-3")}
-                      {renderSortHeader("move10m", "10m", "center", "px-2")}
-                      {renderSortHeader("move15m", "15m", "center", "px-2")}
-                      {renderSortHeader("move30m", "30m", "center", "px-2")}
-                      {renderSortHeader("move1h", "1h", "center", "px-2")}
-                      {renderSortHeader("move2h", "2h", "center", "px-2")}
-                      {renderSortHeader("move1d", "1D", "center", "px-2")}
-                      {renderSortHeader("move1w", "1W", "center", "px-2")}
-                      {renderSortHeader("score", "Score", "center", "px-3")}
-                      <th className="py-3 px-3 text-right">Åtgärd</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {filteredArticles.map((article) => {
-                      const isExpanded = expandedRowId === article.id;
-                      const isSelected = selectedIds.has(article.id);
-                      const isSek =
-                        isSwedishStockSymbol(article.matchedStock) ||
-                        article.matchedStock.endsWith(".ST") ||
-                        article.matchedStock.includes(" ");
-                      const cur = isSek ? "SEK " : "$";
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead className="bg-muted/50 text-xs font-semibold uppercase text-muted-foreground border-b select-none">
+                      <tr>
+                        <th className="py-3 px-3 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer align-middle"
+                            checked={isAllPageSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = isSomePageSelected;
+                            }}
+                            onChange={toggleSelectPage}
+                            title={isAllPageSelected ? "Avmarkera alla på denna sida" : "Markera alla på denna sida"}
+                          />
+                        </th>
+                        {renderSortHeader("stock", "Aktie", "left", "px-4")}
+                        {renderSortHeader("title", "Rubrik & Källa", "left", "px-4 min-w-[300px]")}
+                        {renderSortHeader("type", "Typ", "left", "px-3")}
+                        {renderSortHeader("date", "Datum & År", "left", "px-3 min-w-[105px]")}
+                        {renderSortHeader("priceAtEvent", "Eventkurs", "right", "px-3")}
+                        {renderSortHeader("move10m", "10m", "center", "px-2")}
+                        {renderSortHeader("move15m", "15m", "center", "px-2")}
+                        {renderSortHeader("move30m", "30m", "center", "px-2")}
+                        {renderSortHeader("move1h", "1h", "center", "px-2")}
+                        {renderSortHeader("move2h", "2h", "center", "px-2")}
+                        {renderSortHeader("move1d", "1D", "center", "px-2")}
+                        {renderSortHeader("move1w", "1W", "center", "px-2")}
+                        {renderSortHeader("score", "Score", "center", "px-3")}
+                        <th className="py-3 px-3 text-right">Åtgärd</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {paginatedArticles.map((article) => {
+                        const isExpanded = expandedRowId === article.id;
+                        const isSelected = selectedIds.has(article.id);
+                        const isSek =
+                          isSwedishStockSymbol(article.matchedStock) ||
+                          article.matchedStock.endsWith(".ST") ||
+                          article.matchedStock.includes(" ");
+                        const cur = isSek ? "SEK " : "$";
 
-                      return (
-                        <>
-                          <tr
-                            key={article.id}
-                            className={`transition-colors cursor-pointer group ${
-                              isSelected
-                                ? "bg-primary/5 hover:bg-primary/10"
-                                : "hover:bg-muted/40"
-                            }`}
-                            onClick={() => setExpandedRowId(isExpanded ? null : article.id)}
-                          >
-                            {/* Checkbox */}
-                            <td className="py-3 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer align-middle"
-                                checked={isSelected}
-                                onChange={(e) => toggleSelectOne(article.id, e as any)}
-                              />
-                            </td>
+                        return (
+                          <>
+                            <tr
+                              key={article.id}
+                              className={`transition-colors cursor-pointer group ${
+                                isSelected
+                                  ? "bg-primary/5 hover:bg-primary/10"
+                                  : "hover:bg-muted/40"
+                              }`}
+                              onClick={() => setExpandedRowId(isExpanded ? null : article.id)}
+                            >
+                              {/* Checkbox */}
+                              <td className="py-3 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer align-middle"
+                                  checked={isSelected}
+                                  onChange={(e) => toggleSelectOne(article.id, e as any)}
+                                />
+                              </td>
 
-                            {/* Stock */}
-                            <td className="py-3 px-4 whitespace-nowrap">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-semibold text-xs text-foreground">
-                                  {getStockFullName(article.matchedStock)}
-                                </span>
-                                <Badge variant="secondary" className="font-mono text-[10px] px-1.5 py-0 h-4 bg-muted/60 text-muted-foreground font-normal">
-                                  {article.matchedStock}
-                                </Badge>
-                              </div>
-                            </td>
+                              {/* Stock */}
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-xs text-foreground">
+                                    {getStockFullName(article.matchedStock)}
+                                  </span>
+                                  <Badge variant="secondary" className="font-mono text-[10px] px-1.5 py-0 h-4 bg-muted/60 text-muted-foreground font-normal">
+                                    {article.matchedStock}
+                                  </Badge>
+                                </div>
+                              </td>
 
-                            {/* Title & Source */}
-                            <td className="py-3 px-4">
-                              <div className="font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
-                                {article.title}
-                              </div>
-                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
-                                <span className="font-semibold">{article.source}</span>
-                                {article.matchedKeywords && article.matchedKeywords.length > 0 && (
-                                  <span>• Nyckelord: {article.matchedKeywords.slice(0, 3).join(", ")}</span>
+                              {/* Title & Source */}
+                              <td className="py-3 px-4">
+                                <div className="font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
+                                  {article.title}
+                                </div>
+                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                                  <span className="font-semibold">{article.source}</span>
+                                  {article.matchedKeywords && article.matchedKeywords.length > 0 && (
+                                    <span>• Nyckelord: {article.matchedKeywords.slice(0, 3).join(", ")}</span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Event Type */}
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                {article.eventType ? (
+                                  <Badge variant="secondary" className="text-[11px] font-medium">
+                                    {article.eventType}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">-</span>
                                 )}
-                              </div>
-                            </td>
+                              </td>
 
-                            {/* Event Type */}
-                            <td className="py-3 px-3 whitespace-nowrap">
-                              {article.eventType ? (
-                                <Badge variant="secondary" className="text-[11px] font-medium">
-                                  {article.eventType}
-                                </Badge>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">-</span>
-                              )}
-                            </td>
+                              {/* Date & Year */}
+                              <td className="py-3 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono">
+                                <div className="font-semibold text-foreground/90">
+                                  {new Date(article.publishedAt).toLocaleDateString("sv-SE", {
+                                    year: "numeric",
+                                    month: "2-digit",
+                                    day: "2-digit",
+                                  })}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground opacity-80">
+                                  {new Date(article.publishedAt).toLocaleTimeString("sv-SE", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </div>
+                              </td>
 
-                            {/* Date & Year */}
-                            <td className="py-3 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono">
-                              <div className="font-semibold text-foreground/90">
-                                {new Date(article.publishedAt).toLocaleDateString("sv-SE", {
-                                  year: "numeric",
-                                  month: "2-digit",
-                                  day: "2-digit",
-                                })}
-                              </div>
-                              <div className="text-[10px] text-muted-foreground opacity-80">
-                                {new Date(article.publishedAt).toLocaleTimeString("sv-SE", {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </div>
-                            </td>
+                              {/* Event Price */}
+                              <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap text-xs">
+                                {article.priceAtEvent ? `${cur}${article.priceAtEvent.toFixed(2)}` : "-"}
+                              </td>
 
-                            {/* Event Price */}
-                            <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap text-xs">
-                              {article.priceAtEvent ? `${cur}${article.priceAtEvent.toFixed(2)}` : "-"}
-                            </td>
+                              {/* Horizons */}
+                              <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move10m)}</td>
+                              <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move15m)}</td>
+                              <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move30m)}</td>
+                              <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move1h)}</td>
+                              <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move2h)}</td>
+                              <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move1d)}</td>
+                              <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move1w)}</td>
 
-                            {/* Horizons */}
-                            <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move10m)}</td>
-                            <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move15m)}</td>
-                            <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move30m)}</td>
-                            <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move1h)}</td>
-                            <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move2h)}</td>
-                            <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move1d)}</td>
-                            <td className="py-3 px-2 text-center whitespace-nowrap">{renderMoveBadge(article.move1w)}</td>
-
-                            {/* Score & Sentiment */}
-                            <td className="py-3 px-3 text-center whitespace-nowrap">
-                              <span
-                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
-                                  article.impactScore >= 7
-                                    ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                                    : "bg-muted text-muted-foreground"
-                                }`}
-                              >
-                                {article.impactScore}
-                              </span>
-                            </td>
-
-                            {/* Action Buttons */}
-                            <td className="py-3 px-3 text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                <a
-                                  href={article.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-1 hover:text-primary text-muted-foreground transition-colors"
-                                  title="Öppna originalartikel"
+                              {/* Score & Sentiment */}
+                              <td className="py-3 px-3 text-center whitespace-nowrap">
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
+                                    article.impactScore >= 7
+                                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                      : "bg-muted text-muted-foreground"
+                                  }`}
                                 >
-                                  <ExternalLink className="h-4 w-4" />
-                                </a>
-                                <button
-                                  onClick={() => handleDeleteArticle(article.id)}
-                                  className="p-1 hover:text-destructive text-muted-foreground transition-colors"
-                                  title="Ta bort från arkiv"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
+                                  {article.impactScore}
+                                </span>
+                              </td>
 
-                          {/* Expanded Details Row */}
-                          {isExpanded && (
-                            <tr className="bg-muted/20 border-b">
-                              <td colSpan={15} className="p-4">
-                                <div className="space-y-3 max-w-4xl">
-                                  {article.summary && (
-                                    <div>
-                                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                        Sammanfattning / Ingress:
-                                      </span>
-                                      <p className="text-sm mt-1 leading-relaxed text-foreground/90">{article.summary}</p>
-                                    </div>
-                                  )}
-                                  {/* Pre-Market / Börsöppning Square */}
-                                  {(article.isPreMarket || article.priceOpen1m !== undefined || article.priceOpen15m !== undefined) && (
-                                    <div className="p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/25 dark:bg-amber-950/20 dark:border-amber-700/40 space-y-1.5">
-                                      <div className="flex items-center justify-between text-[11px] font-medium">
-                                        <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-                                          <Sunrise className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                                          <span className="font-semibold text-foreground">Börsöppningsreaktion (Market Open Reaction):</span>
-                                          <Badge variant="outline" className="text-[9.5px] py-0 px-1.5 h-4 border-amber-400/50 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50">
-                                            Före börsöppning
-                                          </Badge>
-                                        </div>
-                                        {article.priceAtEvent && (
-                                          <span className="font-mono text-xs text-muted-foreground">
-                                            Eventkurs: {cur}{article.priceAtEvent.toFixed(2)}
-                                          </span>
-                                        )}
-                                      </div>
-                                      
-                                      <div className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5">
-                                        {renderArchiveHorizonPill("Öppning 1m", article.priceOpen1m, article.moveOpen1m, cur)}
-                                        {renderArchiveHorizonPill("Öppning 15m", article.priceOpen15m, article.moveOpen15m, cur)}
-                                        {renderArchiveHorizonPill("Öppning 30m", article.priceOpen30m, article.moveOpen30m, cur)}
-                                        {renderArchiveHorizonPill("Öppning 1h", article.priceOpen1h, article.moveOpen1h, cur)}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-1">
-                                    <span>
-                                      <strong>Publicerad:</strong>{" "}
-                                      {new Date(article.publishedAt).toLocaleDateString("sv-SE", {
-                                        year: "numeric",
-                                        month: "2-digit",
-                                        day: "2-digit",
-                                      })}{" "}
-                                      kl.{" "}
-                                      {new Date(article.publishedAt).toLocaleTimeString("sv-SE", {
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                      })}
-                                    </span>
-                                    <span>
-                                      <strong>Sentiment:</strong> {article.sentiment}
-                                    </span>
-                                    <span>
-                                      <strong>Priskälla:</strong> {article.priceSource || "Yahoo Finance"}
-                                    </span>
-                                    <a
-                                      href={article.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-primary hover:underline flex items-center gap-1 font-semibold"
-                                    >
-                                      Öppna på {article.source} <ExternalLink className="h-3 w-3" />
-                                    </a>
-                                  </div>
+                              {/* Action Buttons */}
+                              <td className="py-3 px-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                  <a
+                                    href={article.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1 hover:text-primary text-muted-foreground transition-colors"
+                                    title="Öppna originalartikel"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                  </a>
+                                  <button
+                                    onClick={() => handleDeleteArticle(article.id)}
+                                    className="p-1 hover:text-destructive text-muted-foreground transition-colors"
+                                    title="Ta bort från arkiv"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
                                 </div>
                               </td>
                             </tr>
-                          )}
-                        </>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+
+                            {/* Expanded Details Row */}
+                            {isExpanded && (
+                              <tr className="bg-muted/20 border-b">
+                                <td colSpan={15} className="p-4">
+                                  <div className="space-y-3 max-w-4xl">
+                                    {article.summary && (
+                                      <div>
+                                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                          Sammanfattning / Ingress:
+                                        </span>
+                                        <p className="text-sm mt-1 leading-relaxed text-foreground/90">{article.summary}</p>
+                                      </div>
+                                    )}
+                                    {/* Pre-Market / Börsöppning Square */}
+                                    {(article.isPreMarket || article.priceOpen1m !== undefined || article.priceOpen15m !== undefined) && (
+                                      <div className="p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/25 dark:bg-amber-950/20 dark:border-amber-700/40 space-y-1.5">
+                                        <div className="flex items-center justify-between text-[11px] font-medium">
+                                          <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                                            <Sunrise className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                                            <span className="font-semibold text-foreground">Börsöppningsreaktion (Market Open Reaction):</span>
+                                            <Badge variant="outline" className="text-[9.5px] py-0 px-1.5 h-4 border-amber-400/50 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50">
+                                              Före börsöppning
+                                            </Badge>
+                                          </div>
+                                          {article.priceAtEvent && (
+                                            <span className="font-mono text-xs text-muted-foreground">
+                                              Eventkurs: {cur}{article.priceAtEvent.toFixed(2)}
+                                            </span>
+                                          )}
+                                        </div>
+                                        
+                                        <div className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5">
+                                          {renderArchiveHorizonPill("Öppning 1m", article.priceOpen1m, article.moveOpen1m, cur)}
+                                          {renderArchiveHorizonPill("Öppning 15m", article.priceOpen15m, article.moveOpen15m, cur)}
+                                          {renderArchiveHorizonPill("Öppning 30m", article.priceOpen30m, article.moveOpen30m, cur)}
+                                          {renderArchiveHorizonPill("Öppning 1h", article.priceOpen1h, article.moveOpen1h, cur)}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-1">
+                                      <span>
+                                        <strong>Publicerad:</strong>{" "}
+                                        {new Date(article.publishedAt).toLocaleDateString("sv-SE", {
+                                          year: "numeric",
+                                          month: "2-digit",
+                                          day: "2-digit",
+                                        })}{" "}
+                                        kl.{" "}
+                                        {new Date(article.publishedAt).toLocaleTimeString("sv-SE", {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })}
+                                      </span>
+                                      <span>
+                                        <strong>Sentiment:</strong> {article.sentiment}
+                                      </span>
+                                      <span>
+                                        <strong>Priskälla:</strong> {article.priceSource || "Yahoo Finance"}
+                                      </span>
+                                      <a
+                                        href={article.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-primary hover:underline flex items-center gap-1 font-semibold"
+                                      >
+                                        Öppna på {article.source} <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Bar */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 border-t bg-muted/20 text-xs">
+                  {/* Left: Summary & Page Size */}
+                  <div className="flex items-center gap-3 text-muted-foreground flex-wrap">
+                    <span>
+                      Visar <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredArticles.length)}</strong> av <strong>{filteredArticles.length}</strong> sparade rapporter
+                    </span>
+                    <div className="flex items-center gap-1.5 pl-2 border-l border-border/60">
+                      <span className="text-muted-foreground">Visa per sida:</span>
+                      <Select
+                        value={pageSize.toString()}
+                        onValueChange={(v) => {
+                          setPageSize(parseInt(v, 10));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <SelectTrigger className="h-7 w-[85px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="25">25 / sida</SelectItem>
+                          <SelectItem value="50">50 / sida</SelectItem>
+                          <SelectItem value="100">100 / sida</SelectItem>
+                          <SelectItem value="200">200 / sida</SelectItem>
+                          <SelectItem value="500">500 / sida</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Right: Page Navigation Buttons */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center gap-1">
+                      {/* First */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                        title="Första sidan"
+                      >
+                        <ChevronsLeft className="h-3.5 w-3.5" />
+                      </Button>
+
+                      {/* Previous */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5 mr-1" />
+                        Föregående
+                      </Button>
+
+                      {/* Page Number Pills */}
+                      <div className="flex items-center gap-1 px-1">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                          .filter((p) => {
+                            return p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2;
+                          })
+                          .map((p, index, array) => {
+                            const prev = array[index - 1];
+                            const showEllipsis = prev && p - prev > 1;
+                            return (
+                              <div key={p} className="flex items-center gap-1">
+                                {showEllipsis && <span className="px-1 text-muted-foreground font-bold">...</span>}
+                                <Button
+                                  variant={currentPage === p ? "default" : "outline"}
+                                  size="sm"
+                                  className={`h-7 min-w-[28px] px-2 text-xs ${
+                                    currentPage === p ? "font-bold" : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                  onClick={() => setCurrentPage(p)}
+                                >
+                                  {p}
+                                </Button>
+                              </div>
+                            );
+                          })}
+                      </div>
+
+                      {/* Next */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                      >
+                        Nästa
+                        <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                      </Button>
+
+                      {/* Last */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        title="Sista sidan"
+                      >
+                        <ChevronsRight className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
