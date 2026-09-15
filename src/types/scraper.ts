@@ -70,6 +70,18 @@ export interface NewsArticle {
   baseline1h?: number;
   baseline1d?: number;
 
+  // Pre-Market & Market Open Reaction (when news is released outside regular trading hours)
+  isPreMarket?: boolean;
+  marketOpenTime?: string | null;
+  priceOpen1m?: number | null;
+  priceOpen15m?: number | null;
+  priceOpen30m?: number | null;
+  priceOpen1h?: number | null;
+  moveOpen1m?: number | null;
+  moveOpen15m?: number | null;
+  moveOpen30m?: number | null;
+  moveOpen1h?: number | null;
+
   // Status
   priceTrackingStatus?: "pending" | "1h_complete" | "1d_complete";
   is1hTruncated?: boolean;

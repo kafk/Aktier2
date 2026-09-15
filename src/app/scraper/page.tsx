@@ -88,6 +88,16 @@ async function fetchAllPrices(
   price2h: number | null;
   price1d: number | null;
   price1w: number | null;
+  isPreMarket?: boolean;
+  marketOpenTime?: string | null;
+  priceOpen1m?: number | null;
+  priceOpen15m?: number | null;
+  priceOpen30m?: number | null;
+  priceOpen1h?: number | null;
+  moveOpen1m?: number | null;
+  moveOpen15m?: number | null;
+  moveOpen30m?: number | null;
+  moveOpen1h?: number | null;
   source: string;
 }> {
   if (!symbol || symbol === "MARKET" || symbol.trim() === "") {
@@ -100,6 +110,16 @@ async function fetchAllPrices(
       price2h: null,
       price1d: null,
       price1w: null,
+      isPreMarket: false,
+      marketOpenTime: null,
+      priceOpen1m: null,
+      priceOpen15m: null,
+      priceOpen30m: null,
+      priceOpen1h: null,
+      moveOpen1m: null,
+      moveOpen15m: null,
+      moveOpen30m: null,
+      moveOpen1h: null,
       source: "none",
     };
   }
@@ -118,6 +138,16 @@ async function fetchAllPrices(
         price2h: null,
         price1d: null,
         price1w: null,
+        isPreMarket: false,
+        marketOpenTime: null,
+        priceOpen1m: null,
+        priceOpen15m: null,
+        priceOpen30m: null,
+        priceOpen1h: null,
+        moveOpen1m: null,
+        moveOpen15m: null,
+        moveOpen30m: null,
+        moveOpen1h: null,
         source: "error",
       };
     }
@@ -131,6 +161,16 @@ async function fetchAllPrices(
       price2h: data.price2h ?? null,
       price1d: data.price1d ?? null,
       price1w: data.price1w ?? null,
+      isPreMarket: data.isPreMarket ?? false,
+      marketOpenTime: data.marketOpenTime ?? null,
+      priceOpen1m: data.priceOpen1m ?? null,
+      priceOpen15m: data.priceOpen15m ?? null,
+      priceOpen30m: data.priceOpen30m ?? null,
+      priceOpen1h: data.priceOpen1h ?? null,
+      moveOpen1m: data.moveOpen1m ?? null,
+      moveOpen15m: data.moveOpen15m ?? null,
+      moveOpen30m: data.moveOpen30m ?? null,
+      moveOpen1h: data.moveOpen1h ?? null,
       source: data.source || "none",
     };
   } catch (error) {
@@ -144,6 +184,16 @@ async function fetchAllPrices(
       price2h: null,
       price1d: null,
       price1w: null,
+      isPreMarket: false,
+      marketOpenTime: null,
+      priceOpen1m: null,
+      priceOpen15m: null,
+      priceOpen30m: null,
+      priceOpen1h: null,
+      moveOpen1m: null,
+      moveOpen15m: null,
+      moveOpen30m: null,
+      moveOpen1h: null,
       source: "error",
     };
   }
@@ -365,26 +415,46 @@ export default function ScraperPage() {
     const analysis = analyzeSentiment(textToSearch, classifications, scoringConfig);
 
     // Fetch historical prices for stock and SPY across horizons (10m, 15m, 30m, 1h, 2h, 1d, 1w)
-    let stockPrices = {
-      priceAtEvent: null as number | null,
-      price10m: null as number | null,
-      price15m: null as number | null,
-      price30m: null as number | null,
-      price1h: null as number | null,
-      price2h: null as number | null,
-      price1d: null as number | null,
-      price1w: null as number | null,
+    let stockPrices: Awaited<ReturnType<typeof fetchAllPrices>> = {
+      priceAtEvent: null,
+      price10m: null,
+      price15m: null,
+      price30m: null,
+      price1h: null,
+      price2h: null,
+      price1d: null,
+      price1w: null,
+      isPreMarket: false,
+      marketOpenTime: null,
+      priceOpen1m: null,
+      priceOpen15m: null,
+      priceOpen30m: null,
+      priceOpen1h: null,
+      moveOpen1m: null,
+      moveOpen15m: null,
+      moveOpen30m: null,
+      moveOpen1h: null,
       source: "none",
     };
-    let spyPrices = {
-      priceAtEvent: null as number | null,
-      price10m: null as number | null,
-      price15m: null as number | null,
-      price30m: null as number | null,
-      price1h: null as number | null,
-      price2h: null as number | null,
-      price1d: null as number | null,
-      price1w: null as number | null,
+    let spyPrices: Awaited<ReturnType<typeof fetchAllPrices>> = {
+      priceAtEvent: null,
+      price10m: null,
+      price15m: null,
+      price30m: null,
+      price1h: null,
+      price2h: null,
+      price1d: null,
+      price1w: null,
+      isPreMarket: false,
+      marketOpenTime: null,
+      priceOpen1m: null,
+      priceOpen15m: null,
+      priceOpen30m: null,
+      priceOpen1h: null,
+      moveOpen1m: null,
+      moveOpen15m: null,
+      moveOpen30m: null,
+      moveOpen1h: null,
       source: "none",
     };
 
@@ -455,6 +525,17 @@ export default function ScraperPage() {
       move2h: priceMovement?.move2h,
       move1d: priceMovement?.move1d,
       move1w: priceMovement?.move1w,
+      // Pre-market and market open reaction
+      isPreMarket: stockPrices.isPreMarket,
+      marketOpenTime: stockPrices.marketOpenTime,
+      priceOpen1m: stockPrices.priceOpen1m,
+      priceOpen15m: stockPrices.priceOpen15m,
+      priceOpen30m: stockPrices.priceOpen30m,
+      priceOpen1h: stockPrices.priceOpen1h,
+      moveOpen1m: stockPrices.moveOpen1m,
+      moveOpen15m: stockPrices.moveOpen15m,
+      moveOpen30m: stockPrices.moveOpen30m,
+      moveOpen1h: stockPrices.moveOpen1h,
       indexPriceAtEvent: spyPrices.priceAtEvent || undefined,
       indexPrice1h: spyPrices.price1h,
       indexPrice1d: spyPrices.price1d,
