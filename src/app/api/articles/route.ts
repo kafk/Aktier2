@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     const stock = searchParams.get("stock") || undefined;
     const sentiment = searchParams.get("sentiment") || undefined;
     const eventType = searchParams.get("eventType") || undefined;
+    const classification = searchParams.get("classification") || undefined;
     const search = searchParams.get("search") || undefined;
     const daysParam = searchParams.get("days");
     const days = daysParam ? parseInt(daysParam, 10) : undefined;
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
       stock,
       sentiment,
       eventType,
+      classification,
       search,
       days,
       limit,

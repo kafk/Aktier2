@@ -279,14 +279,36 @@ function matchesKeywords(
   return matched;
 }
 
-// Check if article is within date range (includes all days, no exclusion)
-function isWithinDays(pubDate: string, days: number): boolean {
+// Check if article is within date range or custom date filter
+function isWithinDateFilter(
+  pubDate: string,
+  mode: "days" | "custom",
+  days: number,
+  startDate?: string,
+  endDate?: string
+): boolean {
   const articleDate = new Date(pubDate);
+  if (isNaN(articleDate.getTime())) return true;
 
-  // Check if within the specified days range (includes today)
-  const oldCutoff = new Date();
-  oldCutoff.setDate(oldCutoff.getDate() - days);
-  return articleDate >= oldCutoff;
+  if (mode === "custom") {
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      if (articleDate < start) return false;
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      if (articleDate > end) return false;
+    }
+    return true;
+  }
+
+  // Days mode
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  cutoff.setHours(0, 0, 0, 0);
+  return articleDate >= cutoff;
 }
 
 // Check if article was published during US market hours (9:30 AM - 4:00 PM ET)
@@ -339,6 +361,9 @@ export default function ScraperPage() {
     []
   );
   const [daysToScrape, setDaysToScrape] = useState(7);
+  const [dateFilterMode, setDateFilterMode] = useState<"days" | "custom">("days");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
   const [notificationLimit, setNotificationLimit] = useState(10);
   const [hasInitializedKeywords, setHasInitializedKeywords] = useState(false);
   const [newsSource, setNewsSource] = useLocalStorage<NewsSource>("scraper-news-source", "placera");
@@ -398,8 +423,8 @@ export default function ScraperPage() {
     setArticlesScanned: (n: number) => void,
     setNotificationCount: (n: number) => void
   ): Promise<{ matched: boolean; newNotificationCount: number }> => {
-    // Check if within date range
-    if (!isWithinDays(article.pubDate, daysToScrape)) {
+    // Check if within date range or custom date filter
+    if (!isWithinDateFilter(article.pubDate, dateFilterMode, daysToScrape, startDate, endDate)) {
       return { matched: false, newNotificationCount: notificationCount };
     }
 
@@ -645,6 +670,15 @@ export default function ScraperPage() {
 
     const stockSymbols = selectedStocks.map(s => s.symbol).join(",");
 
+    let effectiveDays = daysToScrape;
+    if (dateFilterMode === "custom" && startDate) {
+      const startMs = new Date(startDate).getTime();
+      if (!isNaN(startMs)) {
+        const diffDays = Math.ceil((Date.now() - startMs) / (1000 * 60 * 60 * 24));
+        effectiveDays = Math.max(1, diffDays + 1);
+      }
+    }
+
     // 1. Fetch from Placera if selected
     if (usePlacera) {
       try {
@@ -652,8 +686,8 @@ export default function ScraperPage() {
 
         const activePlaceraTab = newsSource === "placera_press" ? "pressmeddelande" : placeraTab;
         const placeraLimit = activePlaceraTab === "pressmeddelande" ? 100 : 50;
-        const placeraUrl = `/api/placera-news?tab=${activePlaceraTab}&limit=${placeraLimit}&days=${daysToScrape}&mode=${placeraMode}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
-        console.log(`Fetching Placera news (${activePlaceraTab} tab, limit ${placeraLimit}, ${placeraMode} mode, ${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
+        const placeraUrl = `/api/placera-news?tab=${activePlaceraTab}&limit=${placeraLimit}&days=${effectiveDays}&mode=${placeraMode}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
+        console.log(`Fetching Placera news (${activePlaceraTab} tab, limit ${placeraLimit}, ${placeraMode} mode, ${effectiveDays} days, stocks: ${stockSymbols || "all"})...`);
         const response = await fetch(placeraUrl);
         const data = await response.json();
 
@@ -730,8 +764,8 @@ export default function ScraperPage() {
       try {
         setScraperState((prev) => ({ ...prev, progress: completedStages * stageWeight }));
 
-        const mfnUrl = `/api/mfn-news?days=${daysToScrape}${isReportsOnly ? "&filter=reports" : ""}${isMfnCompanyMode ? "&mode=company" : ""}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
-        console.log(`Fetching MFN news (${isReportsOnly ? "Reports only, " : isMfnCompanyMode ? "Company feeds, " : ""}${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
+        const mfnUrl = `/api/mfn-news?days=${effectiveDays}${isReportsOnly ? "&filter=reports" : ""}${isMfnCompanyMode ? "&mode=company" : ""}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
+        console.log(`Fetching MFN news (${isReportsOnly ? "Reports only, " : isMfnCompanyMode ? "Company feeds, " : ""}${effectiveDays} days, stocks: ${stockSymbols || "all"})...`);
         const response = await fetch(mfnUrl);
         const data = await response.json();
 
@@ -872,7 +906,7 @@ export default function ScraperPage() {
         progress: 100,
       }));
     }
-  }, [selectedStocks, selectedKeywords, daysToScrape, notificationLimit, classifications, scoringConfig, newsSource, placeraMode, placeraTab]);
+  }, [selectedStocks, selectedKeywords, daysToScrape, dateFilterMode, startDate, endDate, notificationLimit, classifications, scoringConfig, newsSource, placeraMode, placeraTab]);
 
   const handleStart = () => {
     runScraper();
@@ -974,6 +1008,12 @@ export default function ScraperPage() {
             <ScraperControls
               daysToScrape={daysToScrape}
               onDaysChange={setDaysToScrape}
+              dateFilterMode={dateFilterMode}
+              onDateFilterModeChange={setDateFilterMode}
+              startDate={startDate}
+              onStartDateChange={setStartDate}
+              endDate={endDate}
+              onEndDateChange={setEndDate}
               notificationLimit={notificationLimit}
               onNotificationLimitChange={setNotificationLimit}
               newsSource={newsSource}

@@ -38,6 +38,8 @@ import {
 } from "@/components/ui/select";
 import { NewsArticle } from "@/types/scraper";
 import { isSwedishStockSymbol, getStockDisplayName, getStockFullName } from "@/lib/stockAliases";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { Classification, defaultClassifications } from "@/types/keywords";
 
 type SortField =
   | "date"
@@ -83,6 +85,11 @@ export default function ArchivePage() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const [classifications] = useLocalStorage<Classification[]>(
+    "classifications",
+    defaultClassifications
+  );
 
   // Load articles from Server DB (and merge with local storage)
   const loadArticles = useCallback(async () => {
@@ -153,13 +160,23 @@ export default function ArchivePage() {
     });
   }, [articles]);
 
-  const eventTypeOptions = useMemo(() => {
+  const classificationOptions = useMemo(() => {
     const set = new Set<string>();
+    // From active / configured classifications
+    if (classifications && Array.isArray(classifications)) {
+      classifications.forEach((c) => {
+        if (c.name) set.add(c.name);
+      });
+    }
+    // From scraped articles (eventType and matchedKeywords)
     articles.forEach((a) => {
       if (a.eventType) set.add(a.eventType);
+      if (a.matchedKeywords && Array.isArray(a.matchedKeywords)) {
+        a.matchedKeywords.forEach((k) => set.add(k));
+      }
     });
-    return Array.from(set).sort();
-  }, [articles]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "sv"));
+  }, [classifications, articles]);
 
   // Filtered & Sorted Articles
   const filteredArticles = useMemo(() => {
@@ -169,8 +186,14 @@ export default function ArchivePage() {
         if (selectedStock !== "all" && a.matchedStock !== selectedStock) return false;
         // Sentiment filter
         if (selectedSentiment !== "all" && a.sentiment !== selectedSentiment) return false;
-        // Event type filter
-        if (selectedEventType !== "all" && a.eventType !== selectedEventType) return false;
+        // Classification / Event type filter
+        if (selectedEventType !== "all") {
+          const target = selectedEventType.toLowerCase();
+          const matchType = a.eventType?.toLowerCase() === target;
+          const matchCode = a.eventCode?.toLowerCase() === target;
+          const matchKw = a.matchedKeywords?.some((k) => k.toLowerCase() === target);
+          if (!matchType && !matchCode && !matchKw) return false;
+        }
         // Search query
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
@@ -708,15 +731,15 @@ export default function ArchivePage() {
                 </Select>
               </div>
 
-              {/* Event Type Filter */}
+              {/* Classification Filter */}
               <div>
                 <Select value={selectedEventType} onValueChange={setSelectedEventType}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Alla Händelsetyper" />
+                    <SelectValue placeholder="Alla Klassificeringar" />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Alla Händelsetyper</SelectItem>
-                    {eventTypeOptions.map((t) => (
+                  <SelectContent className="max-h-[320px] overflow-y-auto">
+                    <SelectItem value="all">Alla Klassificeringar ({classificationOptions.length})</SelectItem>
+                    {classificationOptions.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
                       </SelectItem>
@@ -846,7 +869,7 @@ export default function ArchivePage() {
                       {renderSortHeader("stock", "Aktie", "left", "px-4")}
                       {renderSortHeader("title", "Rubrik & Källa", "left", "px-4 min-w-[300px]")}
                       {renderSortHeader("type", "Typ", "left", "px-3")}
-                      {renderSortHeader("date", "Datum", "left", "px-3")}
+                      {renderSortHeader("date", "Datum & År", "left", "px-3 min-w-[105px]")}
                       {renderSortHeader("priceAtEvent", "Eventkurs", "right", "px-3")}
                       {renderSortHeader("move10m", "10m", "center", "px-2")}
                       {renderSortHeader("move15m", "15m", "center", "px-2")}
@@ -926,13 +949,21 @@ export default function ArchivePage() {
                               )}
                             </td>
 
-                            {/* Date */}
+                            {/* Date & Year */}
                             <td className="py-3 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono">
-                              {new Date(article.publishedAt).toLocaleDateString("sv-SE", {
-                                year: "numeric",
-                                month: "short",
-                                day: "numeric",
-                              })}
+                              <div className="font-semibold text-foreground/90">
+                                {new Date(article.publishedAt).toLocaleDateString("sv-SE", {
+                                  year: "numeric",
+                                  month: "2-digit",
+                                  day: "2-digit",
+                                })}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground opacity-80">
+                                {new Date(article.publishedAt).toLocaleTimeString("sv-SE", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </div>
                             </td>
 
                             {/* Event Price */}
@@ -1027,7 +1058,17 @@ export default function ArchivePage() {
 
                                   <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-1">
                                     <span>
-                                      <strong>Publicerad:</strong> {new Date(article.publishedAt).toLocaleString("sv-SE")}
+                                      <strong>Publicerad:</strong>{" "}
+                                      {new Date(article.publishedAt).toLocaleDateString("sv-SE", {
+                                        year: "numeric",
+                                        month: "2-digit",
+                                        day: "2-digit",
+                                      })}{" "}
+                                      kl.{" "}
+                                      {new Date(article.publishedAt).toLocaleTimeString("sv-SE", {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
                                     </span>
                                     <span>
                                       <strong>Sentiment:</strong> {article.sentiment}
