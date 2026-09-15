@@ -63,6 +63,7 @@ export function getStoredArticles(options?: {
   stock?: string;
   sentiment?: string;
   eventType?: string;
+  classification?: string;
   search?: string;
   days?: number;
   limit?: number;
@@ -97,6 +98,16 @@ export function getStoredArticles(options?: {
 
   if (options?.eventType) {
     list = list.filter((a) => a.eventType === options.eventType);
+  }
+
+  if (options?.classification) {
+    const cLower = options.classification.toLowerCase().trim();
+    list = list.filter(
+      (a) =>
+        (a.eventType && a.eventType.toLowerCase() === cLower) ||
+        (a.eventCode && a.eventCode.toLowerCase() === cLower) ||
+        (a.matchedKeywords && a.matchedKeywords.some((k) => k.toLowerCase() === cLower))
+    );
   }
 
   if (options?.search) {

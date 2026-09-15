@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, Pause, Square, RefreshCw } from "lucide-react";
+import { Play, Pause, Square, RefreshCw, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,12 @@ export type PlaceraTab = "all" | "pressmeddelande" | "telegram" | "extern-analys
 interface ScraperControlsProps {
   daysToScrape: number;
   onDaysChange: (days: number) => void;
+  dateFilterMode?: "days" | "custom";
+  onDateFilterModeChange?: (mode: "days" | "custom") => void;
+  startDate?: string;
+  onStartDateChange?: (date: string) => void;
+  endDate?: string;
+  onEndDateChange?: (date: string) => void;
   notificationLimit: number;
   onNotificationLimitChange: (limit: number) => void;
   newsSource: NewsSource;
@@ -42,6 +48,12 @@ interface ScraperControlsProps {
 export function ScraperControls({
   daysToScrape,
   onDaysChange,
+  dateFilterMode = "days",
+  onDateFilterModeChange,
+  startDate = "",
+  onStartDateChange,
+  endDate = "",
+  onEndDateChange,
   notificationLimit,
   onNotificationLimitChange,
   newsSource,
@@ -166,44 +178,123 @@ export function ScraperControls({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Days to Scrape</Label>
-              <Select
-                value={daysToScrape.toString()}
-                onValueChange={(v) => onDaysChange(parseInt(v))}
-                disabled={isRunning}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 dag (Idag)</SelectItem>
-                  <SelectItem value="3">3 dagar</SelectItem>
-                  <SelectItem value="7">7 dagar (1 vecka)</SelectItem>
-                  <SelectItem value="14">14 dagar (2 veckor)</SelectItem>
-                  <SelectItem value="30">30 dagar (1 månad)</SelectItem>
-                  <SelectItem value="60">60 dagar (2 månader)</SelectItem>
-                  <SelectItem value="90">90 dagar (1 kvartal)</SelectItem>
-                  <SelectItem value="180">180 dagar (6 månader)</SelectItem>
-                  <SelectItem value="365">365 dagar (1 år)</SelectItem>
-                  <SelectItem value="730">730 dagar (2 år)</SelectItem>
-                  <SelectItem value="1095">1 095 dagar (3 år)</SelectItem>
-                  <SelectItem value="1825">1 825 dagar (5 år)</SelectItem>
-                </SelectContent>
-              </Select>
+          {/* Time Period / Date Range Selection */}
+          <div className="bg-muted/30 p-3 rounded-lg border border-border/60 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Calendar className="h-3.5 w-3.5 text-primary" />
+                Tidsperiod att skrapa
+              </Label>
+              <div className="flex rounded-md bg-muted p-0.5 border text-xs">
+                <button
+                  type="button"
+                  className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                    dateFilterMode === "days"
+                      ? "bg-background text-foreground shadow-xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => onDateFilterModeChange?.("days")}
+                  disabled={isRunning}
+                >
+                  Förinställda dagar
+                </button>
+                <button
+                  type="button"
+                  className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                    dateFilterMode === "custom"
+                      ? "bg-background text-foreground shadow-xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => onDateFilterModeChange?.("custom")}
+                  disabled={isRunning}
+                >
+                  Valfri period (Datumintervall)
+                </button>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Pause After (notifications)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={100}
-                value={notificationLimit}
-                onChange={(e) => onNotificationLimitChange(parseInt(e.target.value) || 10)}
-                disabled={isRunning && !isPaused}
-              />
-            </div>
+
+            {dateFilterMode === "days" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Antal dagar bakåt i tiden</Label>
+                  <Select
+                    value={daysToScrape.toString()}
+                    onValueChange={(v) => onDaysChange(parseInt(v))}
+                    disabled={isRunning}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 dag (Idag)</SelectItem>
+                      <SelectItem value="3">3 dagar</SelectItem>
+                      <SelectItem value="7">7 dagar (1 vecka)</SelectItem>
+                      <SelectItem value="14">14 dagar (2 veckor)</SelectItem>
+                      <SelectItem value="30">30 dagar (1 månad)</SelectItem>
+                      <SelectItem value="60">60 dagar (2 månader)</SelectItem>
+                      <SelectItem value="90">90 dagar (1 kvartal)</SelectItem>
+                      <SelectItem value="180">180 dagar (6 månader)</SelectItem>
+                      <SelectItem value="365">365 dagar (1 år)</SelectItem>
+                      <SelectItem value="730">730 dagar (2 år)</SelectItem>
+                      <SelectItem value="1095">1 095 dagar (3 år)</SelectItem>
+                      <SelectItem value="1825">1 825 dagar (5 år)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Pausa efter (notiser)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={notificationLimit}
+                    onChange={(e) => onNotificationLimitChange(parseInt(e.target.value) || 10)}
+                    disabled={isRunning && !isPaused}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Från datum (Start)</Label>
+                    <Input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => onStartDateChange?.(e.target.value)}
+                      disabled={isRunning}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Till datum (Slut)</Label>
+                    <Input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => onEndDateChange?.(e.target.value)}
+                      disabled={isRunning}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Pausa efter (notiser)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={notificationLimit}
+                      onChange={(e) => onNotificationLimitChange(parseInt(e.target.value) || 10)}
+                      disabled={isRunning && !isPaused}
+                    />
+                  </div>
+                </div>
+                {startDate && (
+                  <p className="text-[11px] text-muted-foreground">
+                    📅 Skrapar artiklar från <strong>{startDate}</strong> {endDate ? `till och med ${endDate}` : "fram till idag"}.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
