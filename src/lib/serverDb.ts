@@ -167,6 +167,20 @@ export function deleteStoredArticle(id: string): boolean {
 }
 
 /**
+ * Delete multiple articles by IDs
+ */
+export function deleteMultipleStoredArticles(ids: string[]): { deletedCount: number; remainingCount: number } {
+  const idSet = new Set(ids);
+  const current = loadArticlesFromDisk();
+  const filtered = current.filter((a) => !idSet.has(a.id));
+  const deletedCount = current.length - filtered.length;
+  if (deletedCount > 0) {
+    saveArticlesToDisk(filtered);
+  }
+  return { deletedCount, remainingCount: filtered.length };
+}
+
+/**
  * Clear all stored articles
  */
 export function clearAllStoredArticles(): boolean {
