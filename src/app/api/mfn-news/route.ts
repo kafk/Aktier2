@@ -26,79 +26,114 @@ function extractCompanyFromMfnLink(link: string): string {
   return "";
 }
 
-// Fetch and parse MFN RSS feed
-async function fetchMfnRssFeed(isReportsOnly = false): Promise<MfnNewsItem[]> {
-  try {
-    const url = isReportsOnly
-      ? "https://mfn.se/all/s/nordic.rss?filter=(and(or(.properties.tags%40%3E%5B%22sub%3Areport%22%5D)))&limit=192"
-      : "https://mfn.se/all/s/nordic.rss";
+// Fetch and parse MFN RSS feed with multi-year offset pagination
+async function fetchMfnRssFeed(isReportsOnly = false, cutoffDate?: Date, maxPages = 25): Promise<MfnNewsItem[]> {
+  const allItems: MfnNewsItem[] = [];
+  const seenLinks = new Set<string>();
+  const limit = 192;
+  let offset = 0;
 
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(10000),
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/rss+xml, application/xml, text/xml, */*",
-      },
-    });
+  for (let page = 0; page < maxPages; page++) {
+    try {
+      const baseUrl = isReportsOnly
+        ? `https://mfn.se/all/s/nordic.rss?filter=(and(or(.properties.tags%40%3E%5B%22sub%3Areport%22%5D)))&limit=${limit}&offset=${offset}`
+        : `https://mfn.se/all/s/nordic.rss?limit=${limit}&offset=${offset}`;
 
-    if (!response.ok) {
-      console.error(`MFN RSS HTTP ${response.status}`);
-      return [];
+      const response = await fetch(baseUrl, {
+        signal: AbortSignal.timeout(12000),
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        },
+      });
+
+      if (!response.ok) {
+        console.error(`MFN RSS HTTP ${response.status} at offset ${offset}`);
+        break;
+      }
+
+      const xml = await response.text();
+      const $ = cheerio.load(xml, { xmlMode: true });
+      const pageItems: MfnNewsItem[] = [];
+      let oldestTimeInPage: number | null = null;
+
+      $("item").each((_, element) => {
+        const $item = $(element);
+        const title = $item.find("title").text().trim();
+        const link = $item.find("link").text().trim() || $item.find("guid").text().trim();
+        const rawPubDate = $item.find("pubDate").text().trim();
+        const description = $item.find("description").text().trim();
+        const tags = $item.find("x\\:tag, tag").map((__, el) => $(el).text()).get();
+        const isRegulatory = tags.some((t) => t.includes("regulatory") || t.includes("mar"));
+        const isReport = tags.some((t) => t.includes("report")) || isReportsOnly;
+        const author = extractCompanyFromMfnLink(link);
+
+        let pubDate = new Date().toISOString();
+        if (rawPubDate) {
+          const d = new Date(rawPubDate);
+          const t = d.getTime();
+          if (!isNaN(t)) {
+            pubDate = d.toISOString();
+            if (oldestTimeInPage === null || t < oldestTimeInPage) {
+              oldestTimeInPage = t;
+            }
+          }
+        }
+
+        if (title && link && !seenLinks.has(link)) {
+          seenLinks.add(link);
+          let category = "pressmeddelande";
+          if (isReport) {
+            category = "rapport";
+          } else if (isRegulatory) {
+            category = "regulatory";
+          }
+
+          pageItems.push({
+            title,
+            link,
+            pubDate,
+            description: description.slice(0, 400),
+            source: isReport ? "MFN.se (Rapport)" : "MFN.se",
+            category,
+            author,
+            isRegulatory,
+          });
+        }
+      });
+
+      if (pageItems.length === 0) {
+        break;
+      }
+
+      allItems.push(...pageItems);
+
+      // If we have reached or passed the cutoff date, stop paginating
+      if (cutoffDate && oldestTimeInPage !== null && oldestTimeInPage < cutoffDate.getTime()) {
+        break;
+      }
+
+      // If page had fewer items than limit, reached the end of feed
+      if (pageItems.length < limit) {
+        break;
+      }
+
+      offset += limit;
+
+      // Small delay between page fetches
+      if (page < maxPages - 1) {
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    } catch (err) {
+      console.error(`Error fetching MFN RSS at offset ${offset}:`, err);
+      break;
     }
-
-    const xml = await response.text();
-    const $ = cheerio.load(xml, { xmlMode: true });
-    const items: MfnNewsItem[] = [];
-
-    $("item").each((_, element) => {
-      const $item = $(element);
-      const title = $item.find("title").text().trim();
-      const link = $item.find("link").text().trim() || $item.find("guid").text().trim();
-      const rawPubDate = $item.find("pubDate").text().trim();
-      const description = $item.find("description").text().trim();
-      const tags = $item.find("x\\:tag, tag").map((__, el) => $(el).text()).get();
-      const isRegulatory = tags.some((t) => t.includes("regulatory") || t.includes("mar"));
-      const isReport = tags.some((t) => t.includes("report")) || isReportsOnly;
-      const author = extractCompanyFromMfnLink(link);
-
-      // Parse date to ISO string
-      let pubDate = new Date().toISOString();
-      if (rawPubDate) {
-        const d = new Date(rawPubDate);
-        if (!isNaN(d.getTime())) {
-          pubDate = d.toISOString();
-        }
-      }
-
-      if (title && link) {
-        let category = "pressmeddelande";
-        if (isReport) {
-          category = "rapport";
-        } else if (isRegulatory) {
-          category = "regulatory";
-        }
-
-        items.push({
-          title,
-          link,
-          pubDate,
-          description: description.slice(0, 400),
-          source: isReport ? "MFN.se (Rapport)" : "MFN.se",
-          category,
-          author,
-          isRegulatory,
-        });
-      }
-    });
-
-    return items;
-  } catch (err) {
-    console.error("Error fetching MFN RSS:", err);
-    return [];
   }
+
+  return allItems;
 }
 
-// Fetch and parse MFN HTML page
+// Fetch and parse MFN HTML page (fallback)
 async function fetchMfnHtmlFeed(isReportsOnly = false): Promise<MfnNewsItem[]> {
   try {
     const url = isReportsOnly
@@ -132,7 +167,6 @@ async function fetchMfnHtmlFeed(isReportsOnly = false): Promise<MfnNewsItem[]> {
 
       let pubDate = new Date().toISOString();
       if (dateStr && timeStr) {
-        // MFN dates on the Swedish feed are Europe/Stockholm time
         const d = new Date(`${dateStr}T${timeStr}+02:00`);
         if (!isNaN(d.getTime())) {
           pubDate = d.toISOString();
@@ -181,13 +215,19 @@ export async function GET(request: NextRequest) {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - days);
 
-  try {
-    // 1. Fetch RSS feed (primary, rich and fast)
-    const rssItems = await fetchMfnRssFeed(isReportsOnly);
+  // Determine max pages based on number of days requested (e.g. 1-5 years)
+  // For reports, ~200 reports is 1-2 months, ~1500 is a full year.
+  const maxPages = isReportsOnly
+    ? Math.min(60, Math.max(2, Math.ceil(days / 45) * 2))
+    : Math.min(30, Math.max(1, Math.ceil(days / 15)));
 
-    // 2. Fetch HTML feed if RSS gave low item count
+  try {
+    // 1. Fetch RSS feed with multi-page pagination
+    const rssItems = await fetchMfnRssFeed(isReportsOnly, cutoffDate, maxPages);
+
+    // 2. Fetch HTML feed if RSS gave low item count and days < 14
     let combinedItems = [...rssItems];
-    if (combinedItems.length < 20) {
+    if (combinedItems.length < 20 && days <= 14) {
       const htmlItems = await fetchMfnHtmlFeed(isReportsOnly);
       const seen = new Set(combinedItems.map((i) => i.link));
       for (const h of htmlItems) {
@@ -219,6 +259,7 @@ export async function GET(request: NextRequest) {
       source: "live",
       filter: isReportsOnly ? "reports" : "all",
       cutoff: cutoffDate.toISOString(),
+      daysScraped: days,
     });
   } catch (error) {
     console.error("MFN API route error:", error);

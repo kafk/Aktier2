@@ -177,13 +177,18 @@ export function ScraperControls({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">1 day</SelectItem>
-                  <SelectItem value="3">3 days</SelectItem>
-                  <SelectItem value="7">7 days</SelectItem>
-                  <SelectItem value="14">14 days</SelectItem>
-                  <SelectItem value="30">30 days</SelectItem>
-                  <SelectItem value="60">60 days</SelectItem>
-                  <SelectItem value="90">90 days</SelectItem>
+                  <SelectItem value="1">1 dag (Idag)</SelectItem>
+                  <SelectItem value="3">3 dagar</SelectItem>
+                  <SelectItem value="7">7 dagar (1 vecka)</SelectItem>
+                  <SelectItem value="14">14 dagar (2 veckor)</SelectItem>
+                  <SelectItem value="30">30 dagar (1 månad)</SelectItem>
+                  <SelectItem value="60">60 dagar (2 månader)</SelectItem>
+                  <SelectItem value="90">90 dagar (1 kvartal)</SelectItem>
+                  <SelectItem value="180">180 dagar (6 månader)</SelectItem>
+                  <SelectItem value="365">365 dagar (1 år)</SelectItem>
+                  <SelectItem value="730">730 dagar (2 år)</SelectItem>
+                  <SelectItem value="1095">1 095 dagar (3 år)</SelectItem>
+                  <SelectItem value="1825">1 825 dagar (5 år)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
