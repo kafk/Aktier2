@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, CheckCircle, Search } from "lucide-react";
+import { Play, Square, Bell, Send, Clock, Newspaper, AlertTriangle, CheckCircle, Search, Database } from "lucide-react";
+import Link from "next/link";
 import { StockSelector } from "@/components/scraper/StockSelector";
 import { KeywordSelector } from "@/components/scraper/KeywordSelector";
 import { Stock, ScraperKeyword } from "@/types/scraper";
@@ -456,7 +457,14 @@ export default function NewsScrapingPage() {
         titleClassName="text-green-600"
         subtitle="Real-time news monitoring with Telegram alerts"
         backHref="/"
-      />
+      >
+        <Link href="/archive">
+          <Button variant="outline" className="border-indigo-600 text-indigo-600 hover:bg-indigo-50">
+            <Database className="h-4 w-4 mr-2" />
+            Arkiv & Databas
+          </Button>
+        </Link>
+      </Header>
 
       <div className="container mx-auto px-4 pb-8">
         <div className="grid gap-6 lg:grid-cols-2">
