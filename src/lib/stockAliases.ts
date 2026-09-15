@@ -696,6 +696,7 @@ export const STOCK_DICTIONARY: StockInfo[] = [
   { symbol: "SNOW", name: "Snowflake Inc.", aliases: ["SNOWFLAKE", "SNOW"] },
   { symbol: "NOW", name: "ServiceNow Inc.", aliases: ["SERVICENOW", "NOW"] },
   { symbol: "ARM", name: "ARM Holdings", aliases: ["ARM", "ARM HOLDINGS"] },
+  { symbol: "KLAR", name: "Klarna Group", aliases: ["KLARNA", "KLARNA GROUP", "KLAR", "KLARNA HOLDING", "KLARNA BANK"] },
 
   // 🇺🇸 US Blue Chips & Dow
   { symbol: "JPM", name: "JPMorgan Chase & Co.", aliases: ["JPMORGAN", "JP MORGAN", "JPM"] },

@@ -392,6 +392,7 @@ export const popularStocks: Stock[] = [
   { symbol: "SNOW", name: "Snowflake", market: "US", list: "US Tech" },
   { symbol: "NOW", name: "ServiceNow", market: "US", list: "US Tech" },
   { symbol: "ARM", name: "ARM Holdings", market: "US", list: "US Tech" },
+  { symbol: "KLAR", name: "Klarna", market: "US", list: "US Tech" },
 
   // 🇺🇸 US Blue Chips & S&P Leaders
   { symbol: "JPM", name: "JPMorgan Chase", market: "US", list: "US Blue Chips" },
