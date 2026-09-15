@@ -3,6 +3,7 @@ import {
   getStoredArticles,
   saveOrUpdateArticles,
   deleteStoredArticle,
+  deleteMultipleStoredArticles,
   clearAllStoredArticles,
   exportArticlesToCsv,
 } from "@/lib/serverDb";
@@ -95,16 +96,47 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const id = searchParams.get("id");
+    const singleId = searchParams.get("id");
+    const commaIds = searchParams.get("ids");
+    const clearAll = searchParams.get("all") === "true";
 
-    if (id) {
-      const deleted = deleteStoredArticle(id);
-      return NextResponse.json({ success: deleted, deletedId: id });
+    // 1. Check body for array of IDs
+    let bodyIds: string[] = [];
+    try {
+      const body = await request.json();
+      if (Array.isArray(body)) {
+        bodyIds = body;
+      } else if (body && Array.isArray(body.ids)) {
+        bodyIds = body.ids;
+      }
+    } catch {
+      // Body might be empty, that's fine
     }
 
-    // Clear all if no ID specified
-    const cleared = clearAllStoredArticles();
-    return NextResponse.json({ success: cleared, clearedAll: true });
+    const allTargetIds = Array.from(
+      new Set([
+        ...(singleId ? [singleId] : []),
+        ...(commaIds ? commaIds.split(",").map((s) => s.trim()).filter(Boolean) : []),
+        ...bodyIds,
+      ])
+    );
+
+    if (allTargetIds.length === 1) {
+      const deleted = deleteStoredArticle(allTargetIds[0]);
+      return NextResponse.json({ success: deleted, deletedCount: deleted ? 1 : 0 });
+    }
+
+    if (allTargetIds.length > 1) {
+      const result = deleteMultipleStoredArticles(allTargetIds);
+      return NextResponse.json({ success: true, deletedCount: result.deletedCount, remainingCount: result.remainingCount });
+    }
+
+    if (clearAll) {
+      const cleared = clearAllStoredArticles();
+      return NextResponse.json({ success: cleared, clearedAll: true });
+    }
+
+    return NextResponse.json({ error: "No ID(s) provided to delete" }, { status: 400 });
   } catch (error) {
     console.error("Error in DELETE /api/articles:", error);
     return NextResponse.json(

@@ -20,6 +20,8 @@ import {
   ChevronUp,
   Database,
   ArrowUpDown,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
@@ -46,6 +48,7 @@ export default function ArchivePage() {
   const [sortField, setSortField] = useState<"date" | "score" | "move1d" | "stock">("date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Load articles from Server DB (and merge with local storage)
   const loadArticles = useCallback(async () => {
@@ -185,11 +188,164 @@ export default function ArchivePage() {
     window.location.href = "/api/articles?format=csv";
   };
 
+  const toggleSelectOne = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const isAllFilteredSelected =
+    filteredArticles.length > 0 &&
+    filteredArticles.every((a) => selectedIds.has(a.id));
+
+  const isSomeFilteredSelected =
+    filteredArticles.some((a) => selectedIds.has(a.id)) && !isAllFilteredSelected;
+
+  const toggleSelectAll = () => {
+    if (isAllFilteredSelected) {
+      // Deselect all filtered
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredArticles.forEach((a) => next.delete(a.id));
+        return next;
+      });
+    } else {
+      // Select all filtered
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredArticles.forEach((a) => next.add(a.id));
+        return next;
+      });
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleDeleteSelected = async () => {
+    const idsToDelete = Array.from(selectedIds);
+    if (idsToDelete.length === 0) return;
+
+    if (
+      !confirm(
+        `Är du säker på att du vill ta bort ${idsToDelete.length} markerade ${
+          idsToDelete.length === 1 ? "rapport" : "rapporter"
+        } från databasen?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await fetch("/api/articles", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: idsToDelete }),
+      });
+
+      const deletedSet = new Set(idsToDelete);
+      setArticles((prev) => prev.filter((a) => !deletedSet.has(a.id)));
+
+      // Also remove from localStorage
+      try {
+        const stored = JSON.parse(localStorage.getItem("scraped-articles") || "[]");
+        const updated = stored.filter((a: NewsArticle) => !deletedSet.has(a.id));
+        localStorage.setItem("scraped-articles", JSON.stringify(updated));
+      } catch {}
+
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error("Error deleting selected articles:", err);
+    }
+  };
+
+  const handleExportSelectedCsv = () => {
+    const selectedArticles = articles.filter((a) => selectedIds.has(a.id));
+    if (selectedArticles.length === 0) return;
+
+    const headers = [
+      "Symbol",
+      "Title",
+      "Source",
+      "Published At",
+      "Sentiment",
+      "Impact Score",
+      "Event Type",
+      "Event Price",
+      "10m Price",
+      "10m Move %",
+      "15m Price",
+      "15m Move %",
+      "30m Price",
+      "30m Move %",
+      "1h Price",
+      "1h Move %",
+      "2h Price",
+      "2h Move %",
+      "1d Price",
+      "1d Move %",
+      "1w Price",
+      "1w Move %",
+      "Matched Keywords",
+      "URL",
+    ];
+
+    const escapeCsv = (str: any) => `"${String(str ?? "").replace(/"/g, '""')}"`;
+    const rows = selectedArticles.map((a) => [
+      escapeCsv(a.matchedStock),
+      escapeCsv(a.title),
+      escapeCsv(a.source),
+      escapeCsv(a.publishedAt),
+      escapeCsv(a.sentiment),
+      escapeCsv(a.impactScore),
+      escapeCsv(a.eventType || ""),
+      escapeCsv(a.priceAtEvent?.toFixed(2)),
+      escapeCsv(a.price10m?.toFixed(2)),
+      escapeCsv(a.move10m !== null && a.move10m !== undefined ? a.move10m.toFixed(2) + "%" : ""),
+      escapeCsv(a.price15m?.toFixed(2)),
+      escapeCsv(a.move15m !== null && a.move15m !== undefined ? a.move15m.toFixed(2) + "%" : ""),
+      escapeCsv(a.price30m?.toFixed(2)),
+      escapeCsv(a.move30m !== null && a.move30m !== undefined ? a.move30m.toFixed(2) + "%" : ""),
+      escapeCsv(a.price1h?.toFixed(2)),
+      escapeCsv(a.move1h !== null && a.move1h !== undefined ? a.move1h.toFixed(2) + "%" : ""),
+      escapeCsv(a.price2h?.toFixed(2)),
+      escapeCsv(a.move2h !== null && a.move2h !== undefined ? a.move2h.toFixed(2) + "%" : ""),
+      escapeCsv(a.price1d?.toFixed(2)),
+      escapeCsv(a.move1d !== null && a.move1d !== undefined ? a.move1d.toFixed(2) + "%" : ""),
+      escapeCsv(a.price1w?.toFixed(2)),
+      escapeCsv(a.move1w !== null && a.move1w !== undefined ? a.move1w.toFixed(2) + "%" : ""),
+      escapeCsv(a.matchedKeywords?.join(", ")),
+      escapeCsv(a.url),
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `valda_rapporter_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleDeleteArticle = async (id: string) => {
     if (!confirm("Är du säker på att du vill ta bort denna sparade notis?")) return;
     try {
       await fetch(`/api/articles?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       setArticles((prev) => prev.filter((a) => a.id !== id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       // Also remove from localStorage
       try {
         const stored = JSON.parse(localStorage.getItem("scraped-articles") || "[]");
@@ -207,6 +363,7 @@ export default function ArchivePage() {
       await fetch("/api/articles", { method: "DELETE" });
       localStorage.removeItem("scraped-articles");
       setArticles([]);
+      setSelectedIds(new Set());
     } catch (err) {
       console.error("Error clearing articles:", err);
     }
@@ -408,9 +565,59 @@ export default function ArchivePage() {
                 <Database className="h-4 w-4 text-primary" />
                 Sparade Rapporter & Kursreaktioner
               </CardTitle>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={handleExportSelectedCsv}
+                  >
+                    <Download className="h-3 w-3 mr-1 text-emerald-600" />
+                    Exportera valda ({selectedIds.size})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-7 text-xs"
+                    onClick={handleDeleteSelected}
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" />
+                    Ta bort markerade ({selectedIds.size})
+                  </Button>
+                </div>
+              )}
             </div>
           </CardHeader>
           <CardContent className="p-0">
+            {/* Selection Banner */}
+            {selectedIds.size > 0 && (
+              <div className="flex items-center justify-between bg-primary/10 border-b border-primary/20 px-4 py-2.5 text-xs text-foreground">
+                <div className="flex items-center gap-2 font-medium">
+                  <CheckSquare className="h-4 w-4 text-primary" />
+                  <span>
+                    <strong>{selectedIds.size}</strong> {selectedIds.size === 1 ? "rad markerad" : "rader markerade"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleSelectAll}
+                    className="text-primary font-semibold hover:underline mr-2"
+                  >
+                    {isAllFilteredSelected ? "Avmarkera alla i tabell" : `Markera alla (${filteredArticles.length})`}
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs text-muted-foreground"
+                    onClick={handleClearSelection}
+                  >
+                    Rensa markering
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {isLoading ? (
               <div className="text-center py-20 text-muted-foreground">
                 <RefreshCw className="h-8 w-8 mx-auto mb-2 animate-spin text-primary" />
@@ -432,6 +639,18 @@ export default function ArchivePage() {
                 <table className="w-full text-sm text-left border-collapse">
                   <thead className="bg-muted/50 text-xs font-semibold uppercase text-muted-foreground border-b select-none">
                     <tr>
+                      <th className="py-3 px-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer align-middle"
+                          checked={isAllFilteredSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = isSomeFilteredSelected;
+                          }}
+                          onChange={toggleSelectAll}
+                          title={isAllFilteredSelected ? "Avmarkera alla synliga" : "Markera alla synliga"}
+                        />
+                      </th>
                       <th className="py-3 px-4 cursor-pointer" onClick={() => toggleSort("stock")}>
                         <div className="flex items-center gap-1">
                           Aktie <ArrowUpDown className="h-3 w-3" />
@@ -467,6 +686,7 @@ export default function ArchivePage() {
                   <tbody className="divide-y divide-border/60">
                     {filteredArticles.map((article) => {
                       const isExpanded = expandedRowId === article.id;
+                      const isSelected = selectedIds.has(article.id);
                       const isSek =
                         isSwedishStockSymbol(article.matchedStock) ||
                         article.matchedStock.endsWith(".ST") ||
@@ -477,9 +697,23 @@ export default function ArchivePage() {
                         <>
                           <tr
                             key={article.id}
-                            className="hover:bg-muted/40 transition-colors cursor-pointer group"
+                            className={`transition-colors cursor-pointer group ${
+                              isSelected
+                                ? "bg-primary/5 hover:bg-primary/10"
+                                : "hover:bg-muted/40"
+                            }`}
                             onClick={() => setExpandedRowId(isExpanded ? null : article.id)}
                           >
+                            {/* Checkbox */}
+                            <td className="py-3 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer align-middle"
+                                checked={isSelected}
+                                onChange={(e) => toggleSelectOne(article.id, e as any)}
+                              />
+                            </td>
+
                             {/* Stock */}
                             <td className="py-3 px-4 font-mono font-bold whitespace-nowrap">
                               <Badge variant="default" className="font-mono text-xs">
@@ -573,7 +807,7 @@ export default function ArchivePage() {
                           {/* Expanded Details Row */}
                           {isExpanded && (
                             <tr className="bg-muted/20 border-b">
-                              <td colSpan={14} className="p-4">
+                              <td colSpan={15} className="p-4">
                                 <div className="space-y-3 max-w-4xl">
                                   {article.summary && (
                                     <div>
