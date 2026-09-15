@@ -860,8 +860,8 @@ export default function ScraperPage() {
         </Link>
       </Header>
 
-      <div className="container mx-auto px-4">
-        <div className="grid gap-6 lg:grid-cols-2">
+      <div className="container mx-auto px-4 max-w-[1920px] pb-10">
+        <div className="grid gap-6 lg:grid-cols-2 items-start">
           {/* Left Column - Configuration */}
           <div className="space-y-6">
             <StockSelector
@@ -896,7 +896,7 @@ export default function ScraperPage() {
           </div>
 
           {/* Right Column - Results */}
-          <div>
+          <div className="lg:sticky lg:top-4 h-fit">
             <ScraperResults
               articles={scraperState.matchedArticles}
               onClearResults={handleClearResults}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ExternalLink, TrendingUp, TrendingDown, Minus, Bell, Trash2, Clock, Timer, ChevronDown, ChevronUp, Filter, X } from "lucide-react";
+import { ExternalLink, TrendingUp, TrendingDown, Minus, Bell, Trash2, Clock, Timer, ChevronDown, ChevronUp, Filter, X, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [expandedKeywords, setExpandedKeywords] = useState<Record<string, boolean>>({});
+  const [isFullHeight, setIsFullHeight] = useState<boolean>(true);
 
   const toggleKeywords = (id: string) => {
     setExpandedKeywords(prev => ({ ...prev, [id]: !prev[id] }));
@@ -179,39 +180,62 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
 
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
+    <Card className="flex flex-col shadow-sm border border-border/70">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
+            <CardTitle className="flex items-center gap-2 text-xl font-bold">
+              <Bell className="h-5 w-5 text-primary" />
               News Alerts
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-xs mt-0.5">
               {selectedLabels.length > 0
                 ? `${filteredArticles.length} of ${articles.length} articles`
                 : `${articles.length} matching articles found`}
             </CardDescription>
           </div>
-          {articles.length > 0 && (
-            <Button variant="outline" size="sm" onClick={onClearResults}>
-              <Trash2 className="h-4 w-4 mr-1" />
-              Clear
-            </Button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {articles.length > 0 && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsFullHeight(!isFullHeight)}
+                  title={isFullHeight ? "Kompakt vy" : "Expandera till helskärm"}
+                >
+                  {isFullHeight ? (
+                    <>
+                      <Minimize2 className="h-3.5 w-3.5 mr-1" />
+                      Kompakt
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="h-3.5 w-3.5 mr-1" />
+                      Expandera
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs text-destructive hover:text-destructive" onClick={onClearResults}>
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Clear
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Label Filter */}
         {availableLabels.length > 0 && (
-          <div className="mt-3 pt-3 border-t">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Filter:</span>
+          <div className="mt-2.5 pt-2.5 border-t">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-[11px] font-semibold text-muted-foreground">Filter:</span>
               {availableLabels.map(label => (
                 <Badge
                   key={label}
                   variant={selectedLabels.includes(label) ? "default" : "outline"}
-                  className="cursor-pointer text-xs"
+                  className="cursor-pointer text-[11px] py-0 px-2 h-5"
                   onClick={() => toggleLabel(label)}
                 >
                   {label}
@@ -221,7 +245,7 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 px-2 text-xs"
+                  className="h-5 px-1.5 text-[11px]"
                   onClick={clearFilters}
                 >
                   <X className="h-3 w-3 mr-1" />
@@ -232,9 +256,9 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
           </div>
         )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-0">
         {filteredArticles.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="text-center py-16 text-muted-foreground">
             <Bell className="h-12 w-12 mx-auto mb-4 opacity-20" />
             {articles.length > 0 && selectedLabels.length > 0 ? (
               <>
@@ -251,7 +275,11 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
             )}
           </div>
         ) : (
-          <div className="space-y-3 max-h-[600px] overflow-y-auto">
+          <div className={`space-y-3 overflow-y-auto pr-1 transition-all duration-200 ${
+            isFullHeight
+              ? "max-h-[calc(100vh-210px)] min-h-[650px] 2xl:max-h-[calc(100vh-170px)]"
+              : "max-h-[600px]"
+          }`}>
             {filteredArticles.map((article) => {
               const has1hData = article.newsImpact1h !== undefined && article.newsImpact1h !== null;
               const has1dData = article.newsImpact1d !== undefined && article.newsImpact1d !== null;
