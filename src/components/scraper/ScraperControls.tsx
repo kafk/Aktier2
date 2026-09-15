@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScraperState, MarketDataSource } from "@/types/scraper";
 
-export type NewsSource = "yahoo" | "placera" | "placera_press" | "mfn" | "nordic" | "all" | "both";
+export type NewsSource = "yahoo" | "placera" | "placera_press" | "mfn" | "mfn_reports" | "nordic" | "nordic_reports" | "all" | "both";
 export type PlaceraScrapeMode = "feed" | "search" | "both";
 export type PlaceraTab = "all" | "pressmeddelande" | "telegram" | "extern-analys";
 
@@ -84,10 +84,12 @@ export function ScraperControls({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="mfn_reports">📊 MFN.se (Endast Kvartals- & Delårsrapporter / sub:report)</SelectItem>
+                  <SelectItem value="mfn">📰 MFN.se (Alla Pressmeddelanden & PM)</SelectItem>
+                  <SelectItem value="nordic_reports">📈 Alla Nordiska Rapporter (MFN Rapporter + Placera)</SelectItem>
                   <SelectItem value="placera">🇸🇪 Placera.se (Alla nyheter & telegram)</SelectItem>
                   <SelectItem value="placera_press">📢 Placera.se (Endast Pressmeddelanden)</SelectItem>
-                  <SelectItem value="mfn">📰 MFN.se (Nordic Press Releases & Regulatory)</SelectItem>
-                  <SelectItem value="nordic">🇸🇪 Placera + MFN.se (All Nordic)</SelectItem>
+                  <SelectItem value="nordic">🇸🇪 Placera + MFN.se (Allt Nordiskt)</SelectItem>
                   <SelectItem value="yahoo">🇺🇸 Yahoo Finance (US News)</SelectItem>
                   <SelectItem value="all">🌐 All Sources (Placera, MFN, Yahoo)</SelectItem>
                 </SelectContent>

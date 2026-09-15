@@ -26,12 +26,15 @@ function extractCompanyFromMfnLink(link: string): string {
   return "";
 }
 
-// Fetch and parse MFN RSS feed (https://mfn.se/all/s/nordic.rss)
-async function fetchMfnRssFeed(): Promise<MfnNewsItem[]> {
+// Fetch and parse MFN RSS feed
+async function fetchMfnRssFeed(isReportsOnly = false): Promise<MfnNewsItem[]> {
   try {
-    const url = "https://mfn.se/all/s/nordic.rss";
+    const url = isReportsOnly
+      ? "https://mfn.se/all/s/nordic.rss?filter=(and(or(.properties.tags%40%3E%5B%22sub%3Areport%22%5D)))&limit=192"
+      : "https://mfn.se/all/s/nordic.rss";
+
     const response = await fetch(url, {
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(10000),
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/rss+xml, application/xml, text/xml, */*",
@@ -55,6 +58,7 @@ async function fetchMfnRssFeed(): Promise<MfnNewsItem[]> {
       const description = $item.find("description").text().trim();
       const tags = $item.find("x\\:tag, tag").map((__, el) => $(el).text()).get();
       const isRegulatory = tags.some((t) => t.includes("regulatory") || t.includes("mar"));
+      const isReport = tags.some((t) => t.includes("report")) || isReportsOnly;
       const author = extractCompanyFromMfnLink(link);
 
       // Parse date to ISO string
@@ -67,13 +71,20 @@ async function fetchMfnRssFeed(): Promise<MfnNewsItem[]> {
       }
 
       if (title && link) {
+        let category = "pressmeddelande";
+        if (isReport) {
+          category = "rapport";
+        } else if (isRegulatory) {
+          category = "regulatory";
+        }
+
         items.push({
           title,
           link,
           pubDate,
-          description: description.slice(0, 300),
-          source: "MFN.se",
-          category: isRegulatory ? "regulatory" : "pressmeddelande",
+          description: description.slice(0, 400),
+          source: isReport ? "MFN.se (Rapport)" : "MFN.se",
+          category,
           author,
           isRegulatory,
         });
@@ -87,12 +98,15 @@ async function fetchMfnRssFeed(): Promise<MfnNewsItem[]> {
   }
 }
 
-// Fetch and parse MFN HTML page (https://mfn.se/all/s/nordic)
-async function fetchMfnHtmlFeed(): Promise<MfnNewsItem[]> {
+// Fetch and parse MFN HTML page
+async function fetchMfnHtmlFeed(isReportsOnly = false): Promise<MfnNewsItem[]> {
   try {
-    const url = "https://mfn.se/all/s/nordic";
+    const url = isReportsOnly
+      ? "https://mfn.se/all/s/nordic?filter=(and(or(.properties.tags%40%3E%5B%22sub%3Areport%22%5D)))&limit=192"
+      : "https://mfn.se/all/s/nordic";
+
     const response = await fetch(url, {
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(10000),
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -105,16 +119,16 @@ async function fetchMfnHtmlFeed(): Promise<MfnNewsItem[]> {
     const $ = cheerio.load(html);
     const items: MfnNewsItem[] = [];
 
-    $(".short-item").each((_, element) => {
+    $(".short-item, .item").each((_, element) => {
       const $el = $(element);
-      const titleLink = $el.find(".compressed-title a");
+      const titleLink = $el.find(".compressed-title a, a.title");
       const title = titleLink.text().trim() || titleLink.attr("title") || "";
       const rawHref = titleLink.attr("href") || "";
       const link = rawHref.startsWith("http") ? rawHref : `https://mfn.se${rawHref}`;
 
-      const dateStr = $el.find(".compressed-date").text().trim();
-      const timeStr = $el.find(".compressed-time").text().trim();
-      const author = $el.find(".compressed-author a").text().trim();
+      const dateStr = $el.find(".compressed-date, .date").text().trim();
+      const timeStr = $el.find(".compressed-time, .time").text().trim();
+      const author = $el.find(".compressed-author a, .author").text().trim();
 
       let pubDate = new Date().toISOString();
       if (dateStr && timeStr) {
@@ -131,8 +145,8 @@ async function fetchMfnHtmlFeed(): Promise<MfnNewsItem[]> {
           link,
           pubDate,
           description: "",
-          source: "MFN.se",
-          category: "pressmeddelande",
+          source: isReportsOnly ? "MFN.se (Rapport)" : "MFN.se",
+          category: isReportsOnly ? "rapport" : "pressmeddelande",
           author,
         });
       }
@@ -150,8 +164,10 @@ export async function GET(request: NextRequest) {
   const daysParam = searchParams.get("days");
   const days = daysParam ? Math.max(1, parseInt(daysParam, 10)) : 7;
   const stocksParam = searchParams.get("stocks") || "";
+  const filterParam = searchParams.get("filter") || "";
+  const isReportsOnly = filterParam === "reports" || searchParams.get("reports") === "true";
 
-  const cacheKey = `mfn-${days}-${stocksParam}`;
+  const cacheKey = `mfn-${days}-${stocksParam}-${isReportsOnly ? "reports" : "all"}`;
   const cached = mfnCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return NextResponse.json({
@@ -167,12 +183,12 @@ export async function GET(request: NextRequest) {
 
   try {
     // 1. Fetch RSS feed (primary, rich and fast)
-    const rssItems = await fetchMfnRssFeed();
+    const rssItems = await fetchMfnRssFeed(isReportsOnly);
 
     // 2. Fetch HTML feed if RSS gave low item count
     let combinedItems = [...rssItems];
     if (combinedItems.length < 20) {
-      const htmlItems = await fetchMfnHtmlFeed();
+      const htmlItems = await fetchMfnHtmlFeed(isReportsOnly);
       const seen = new Set(combinedItems.map((i) => i.link));
       for (const h of htmlItems) {
         if (!seen.has(h.link)) {
@@ -201,6 +217,7 @@ export async function GET(request: NextRequest) {
       articles: filtered,
       totalFetched: filtered.length,
       source: "live",
+      filter: isReportsOnly ? "reports" : "all",
       cutoff: cutoffDate.toISOString(),
     });
   } catch (error) {
