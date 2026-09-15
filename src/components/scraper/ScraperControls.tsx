@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScraperState, MarketDataSource } from "@/types/scraper";
 
-export type NewsSource = "yahoo" | "placera" | "placera_press" | "mfn" | "mfn_reports" | "nordic" | "nordic_reports" | "all" | "both";
+export type NewsSource = "yahoo" | "placera" | "placera_press" | "mfn" | "mfn_reports" | "mfn_company" | "nordic" | "nordic_reports" | "all" | "both";
 export type PlaceraScrapeMode = "feed" | "search" | "both";
 export type PlaceraTab = "all" | "pressmeddelande" | "telegram" | "extern-analys";
 
@@ -84,6 +84,7 @@ export function ScraperControls({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="mfn_company">🏢 MFN.se (Direkta Bolagsflöden /all/a/volvo)</SelectItem>
                   <SelectItem value="mfn_reports">📊 MFN.se (Endast Kvartals- & Delårsrapporter / sub:report)</SelectItem>
                   <SelectItem value="mfn">📰 MFN.se (Alla Pressmeddelanden & PM)</SelectItem>
                   <SelectItem value="nordic_reports">📈 Alla Nordiska Rapporter (MFN Rapporter + Placera)</SelectItem>

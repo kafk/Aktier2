@@ -542,9 +542,10 @@ export default function ScraperPage() {
 
     // Determine active stages
     const usePlacera = newsSource === "placera" || newsSource === "placera_press" || newsSource === "nordic" || newsSource === "nordic_reports" || newsSource === "all" || newsSource === "both";
-    const useMfn = newsSource === "mfn" || newsSource === "mfn_reports" || newsSource === "nordic" || newsSource === "nordic_reports" || newsSource === "all";
+    const useMfn = newsSource === "mfn" || newsSource === "mfn_reports" || newsSource === "mfn_company" || newsSource === "nordic" || newsSource === "nordic_reports" || newsSource === "all";
     const useYahoo = newsSource === "yahoo" || newsSource === "all" || newsSource === "both";
     const isReportsOnly = newsSource === "mfn_reports" || newsSource === "nordic_reports";
+    const isMfnCompanyMode = newsSource === "mfn_company";
 
     const totalActiveStages = (usePlacera ? 1 : 0) + (useMfn ? 1 : 0) + (useYahoo ? 1 : 0);
     const stageWeight = 100 / Math.max(1, totalActiveStages);
@@ -637,8 +638,8 @@ export default function ScraperPage() {
       try {
         setScraperState((prev) => ({ ...prev, progress: completedStages * stageWeight }));
 
-        const mfnUrl = `/api/mfn-news?days=${daysToScrape}${isReportsOnly ? "&filter=reports" : ""}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
-        console.log(`Fetching MFN news (${isReportsOnly ? "Reports only, " : ""}${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
+        const mfnUrl = `/api/mfn-news?days=${daysToScrape}${isReportsOnly ? "&filter=reports" : ""}${isMfnCompanyMode ? "&mode=company" : ""}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
+        console.log(`Fetching MFN news (${isReportsOnly ? "Reports only, " : isMfnCompanyMode ? "Company feeds, " : ""}${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
         const response = await fetch(mfnUrl);
         const data = await response.json();
 
@@ -835,6 +836,7 @@ export default function ScraperPage() {
         subtitle={`Monitor stocks for keyword-matching news from ${
           newsSource === "placera" ? "Placera.se (All)" :
           newsSource === "placera_press" ? "Placera.se (Pressmeddelanden)" :
+          newsSource === "mfn_company" ? "MFN.se (Direkta Bolagsflöden)" :
           newsSource === "mfn_reports" ? "MFN.se (Kvartals- & Delårsrapporter)" :
           newsSource === "mfn" ? "MFN.se (Nordic Press)" :
           newsSource === "nordic_reports" ? "Nordiska Rapporter (MFN & Placera)" :
