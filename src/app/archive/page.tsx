@@ -22,6 +22,7 @@ import {
   ArrowUpDown,
   CheckSquare,
   Square,
+  Sunrise,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
@@ -379,6 +380,15 @@ export default function ArchivePage() {
       "1d Move %",
       "1w Price",
       "1w Move %",
+      "Pre-Market Event",
+      "Open 1m Price",
+      "Open 1m Move %",
+      "Open 15m Price",
+      "Open 15m Move %",
+      "Open 30m Price",
+      "Open 30m Move %",
+      "Open 1h Price",
+      "Open 1h Move %",
       "Matched Keywords",
       "URL",
     ];
@@ -407,6 +417,15 @@ export default function ArchivePage() {
       escapeCsv(a.move1d !== null && a.move1d !== undefined ? a.move1d.toFixed(2) + "%" : ""),
       escapeCsv(a.price1w?.toFixed(2)),
       escapeCsv(a.move1w !== null && a.move1w !== undefined ? a.move1w.toFixed(2) + "%" : ""),
+      escapeCsv(a.isPreMarket ? "Yes" : "No"),
+      escapeCsv(a.priceOpen1m?.toFixed(2)),
+      escapeCsv(a.moveOpen1m !== null && a.moveOpen1m !== undefined ? a.moveOpen1m.toFixed(2) + "%" : ""),
+      escapeCsv(a.priceOpen15m?.toFixed(2)),
+      escapeCsv(a.moveOpen15m !== null && a.moveOpen15m !== undefined ? a.moveOpen15m.toFixed(2) + "%" : ""),
+      escapeCsv(a.priceOpen30m?.toFixed(2)),
+      escapeCsv(a.moveOpen30m !== null && a.moveOpen30m !== undefined ? a.moveOpen30m.toFixed(2) + "%" : ""),
+      escapeCsv(a.priceOpen1h?.toFixed(2)),
+      escapeCsv(a.moveOpen1h !== null && a.moveOpen1h !== undefined ? a.moveOpen1h.toFixed(2) + "%" : ""),
       escapeCsv(a.matchedKeywords?.join(", ")),
       escapeCsv(a.url),
     ]);
@@ -507,6 +526,47 @@ export default function ArchivePage() {
           )}
         </div>
       </th>
+    );
+  };
+
+  const renderArchiveHorizonPill = (
+    label: string,
+    price: number | null | undefined,
+    move: number | null | undefined,
+    cur: string
+  ) => {
+    if (price === null || price === undefined) {
+      return (
+        <div className="flex flex-col items-center justify-center px-2 py-1 rounded border text-[11px] min-w-[62px] bg-muted/40 text-muted-foreground border-muted">
+          <span className="text-[9px] font-semibold opacity-70 uppercase tracking-wider">{label}</span>
+          <span className="font-mono text-[11.5px] leading-tight">—</span>
+          <span className="text-[9.5px] opacity-60">Pending</span>
+        </div>
+      );
+    }
+
+    const isPositive = move !== null && move !== undefined && move > 0.05;
+    const isNegative = move !== null && move !== undefined && move < -0.05;
+
+    const colorClass = isPositive
+      ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
+      : isNegative
+      ? "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
+      : "bg-muted/60 text-foreground border-muted-foreground/20";
+
+    const moveText = move !== null && move !== undefined
+      ? `${move > 0 ? "+" : ""}${move.toFixed(2)}%`
+      : "0.00%";
+
+    return (
+      <div
+        className={`flex flex-col items-center justify-center px-2 py-1 rounded border text-[11px] min-w-[62px] transition-all shadow-xs ${colorClass}`}
+        title={`${label}: ${cur}${price.toFixed(2)} (${moveText})`}
+      >
+        <span className="text-[9px] font-semibold opacity-75 uppercase tracking-wider">{label}</span>
+        <span className="font-mono font-bold text-[11.5px] leading-tight">{cur}{price.toFixed(2)}</span>
+        <span className="text-[10px] font-semibold">{moveText}</span>
+      </div>
     );
   };
 
@@ -938,6 +998,33 @@ export default function ArchivePage() {
                                       <p className="text-sm mt-1 leading-relaxed text-foreground/90">{article.summary}</p>
                                     </div>
                                   )}
+                                  {/* Pre-Market / Börsöppning Square */}
+                                  {(article.isPreMarket || article.priceOpen1m !== undefined || article.priceOpen15m !== undefined) && (
+                                    <div className="p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/25 dark:bg-amber-950/20 dark:border-amber-700/40 space-y-1.5">
+                                      <div className="flex items-center justify-between text-[11px] font-medium">
+                                        <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                                          <Sunrise className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                                          <span className="font-semibold text-foreground">Börsöppningsreaktion (Market Open Reaction):</span>
+                                          <Badge variant="outline" className="text-[9.5px] py-0 px-1.5 h-4 border-amber-400/50 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50">
+                                            Före börsöppning
+                                          </Badge>
+                                        </div>
+                                        {article.priceAtEvent && (
+                                          <span className="font-mono text-xs text-muted-foreground">
+                                            Eventkurs: {cur}{article.priceAtEvent.toFixed(2)}
+                                          </span>
+                                        )}
+                                      </div>
+                                      
+                                      <div className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5">
+                                        {renderArchiveHorizonPill("Öppning 1m", article.priceOpen1m, article.moveOpen1m, cur)}
+                                        {renderArchiveHorizonPill("Öppning 15m", article.priceOpen15m, article.moveOpen15m, cur)}
+                                        {renderArchiveHorizonPill("Öppning 30m", article.priceOpen30m, article.moveOpen30m, cur)}
+                                        {renderArchiveHorizonPill("Öppning 1h", article.priceOpen1h, article.moveOpen1h, cur)}
+                                      </div>
+                                    </div>
+                                  )}
+
                                   <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-1">
                                     <span>
                                       <strong>Publicerad:</strong> {new Date(article.publishedAt).toLocaleString("sv-SE")}

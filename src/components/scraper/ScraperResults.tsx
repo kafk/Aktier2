@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ExternalLink, TrendingUp, TrendingDown, Minus, Bell, Trash2, Clock, Timer, ChevronDown, ChevronUp, Filter, X, Maximize2, Minimize2 } from "lucide-react";
+import { ExternalLink, TrendingUp, TrendingDown, Minus, Bell, Trash2, Clock, Timer, ChevronDown, ChevronUp, Filter, X, Maximize2, Minimize2, Sunrise } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -386,6 +386,40 @@ export function ScraperResults({ articles, onClearResults, onArticleClick }: Scr
                             {renderHorizonPill("1 week", article.price1w, article.move1w, cur)}
                           </div>
                         </div>
+
+                        {/* Pre-Market / Market Open Reaction Square (1m, 15m, 30m, 1h) */}
+                        {(article.isPreMarket || article.priceOpen1m !== undefined || article.priceOpen15m !== undefined) && (
+                          <div className="mb-2.5 p-2 rounded-lg bg-amber-500/5 border border-amber-500/25 dark:bg-amber-950/20 dark:border-amber-700/40 space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px] font-medium">
+                              <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                                <Sunrise className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                                <span className="font-semibold text-foreground">Börsöppning (Market Open Reaction):</span>
+                                <Badge variant="outline" className="text-[9.5px] py-0 px-1.5 h-4 border-amber-400/50 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50">
+                                  Nyhet före öppning
+                                </Badge>
+                              </div>
+                              {article.priceAtEvent && (
+                                <span className="font-mono text-xs text-muted-foreground">
+                                  Bas: {cur}{article.priceAtEvent.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            
+                            <div className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5">
+                              {/* 1 min */}
+                              {renderHorizonPill("Öppning 1m", article.priceOpen1m, article.moveOpen1m, cur)}
+
+                              {/* 15 min */}
+                              {renderHorizonPill("Öppning 15m", article.priceOpen15m, article.moveOpen15m, cur)}
+
+                              {/* 30 min */}
+                              {renderHorizonPill("Öppning 30m", article.priceOpen30m, article.moveOpen30m, cur)}
+
+                              {/* 1 hour */}
+                              {renderHorizonPill("Öppning 1h", article.priceOpen1h, article.moveOpen1h, cur)}
+                            </div>
+                          </div>
+                        )}
 
                         {/* 1H and 1D Impact Verdict Boxes */}
                         <div className="flex gap-2 mb-2">

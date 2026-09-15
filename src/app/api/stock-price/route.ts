@@ -622,7 +622,86 @@ async function fetchYahooHistoricalPrice(
   return findClosestPriceInChart(chart, targetSec);
 }
 
-// Fetch all price points for an event (atEvent, 10m, 15m, 30m, 1h, 2h, 1d, 1w) in one fast call
+function getTimezoneOffsetMinutes(timeZone: string, date: Date): number {
+  try {
+    const utcDate = new Date(date.toLocaleString("en-US", { timeZone: "UTC" }));
+    const tzDate = new Date(date.toLocaleString("en-US", { timeZone }));
+    return Math.round((tzDate.getTime() - utcDate.getTime()) / 60000);
+  } catch {
+    return timeZone === "Europe/Stockholm" ? 120 : -240;
+  }
+}
+
+function getMarketOpenInfo(eventTime: Date, isSwedish: boolean): {
+  isPreMarket: boolean;
+  marketOpenTime: Date;
+  marketOpenSec: number;
+} {
+  const timeZone = isSwedish ? "Europe/Stockholm" : "America/New_York";
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(eventTime);
+  const getPart = (type: string) => parseInt(parts.find((p) => p.type === type)?.value || "0", 10);
+
+  const year = getPart("year");
+  const month = getPart("month") - 1; // 0-indexed
+  const day = getPart("day");
+  const hour = getPart("hour");
+  const minute = getPart("minute");
+
+  const localDateObj = new Date(Date.UTC(year, month, day, hour, minute));
+  const dayOfWeek = localDateObj.getUTCDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
+
+  // Market hours in local time
+  const openHour = isSwedish ? 9 : 9;
+  const openMinute = isSwedish ? 0 : 30;
+  const closeHour = isSwedish ? 17 : 16;
+  const closeMinute = isSwedish ? 30 : 0;
+
+  const currentMinutes = hour * 60 + minute;
+  const openMinutes = openHour * 60 + openMinute;
+  const closeMinutes = closeHour * 60 + closeMinute;
+
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const isBeforeOpen = currentMinutes < openMinutes;
+  const isAfterClose = currentMinutes >= closeMinutes;
+  const isPreMarket = isWeekend || isBeforeOpen || isAfterClose;
+
+  let targetYear = year;
+  let targetMonth = month;
+  let targetDay = day;
+
+  if (isWeekend) {
+    const daysUntilMonday = dayOfWeek === 0 ? 1 : 2;
+    targetDay += daysUntilMonday;
+  } else if (isAfterClose) {
+    if (dayOfWeek === 5) {
+      targetDay += 3; // Friday night -> Monday
+    } else {
+      targetDay += 1; // Mon-Thu night -> Tomorrow
+    }
+  }
+
+  const targetDateObj = new Date(Date.UTC(targetYear, targetMonth, targetDay, openHour, openMinute, 0));
+  const tzOffsetMinutes = getTimezoneOffsetMinutes(timeZone, targetDateObj);
+  const openUtcMs = Date.UTC(targetYear, targetMonth, targetDay, openHour, openMinute, 0) - tzOffsetMinutes * 60000;
+  const marketOpenTime = new Date(openUtcMs);
+  const marketOpenSec = Math.floor(openUtcMs / 1000);
+
+  return { isPreMarket, marketOpenTime, marketOpenSec };
+}
+
+// Fetch all price points for an event (atEvent, 10m, 15m, 30m, 1h, 2h, 1d, 1w + Pre-Market Open) in one fast call
 async function fetchEventPricePoints(
   symbol: string,
   eventTime: Date,
@@ -636,6 +715,16 @@ async function fetchEventPricePoints(
   price2h: number | null;
   price1d: number | null;
   price1w: number | null;
+  isPreMarket: boolean;
+  marketOpenTime: string | null;
+  priceOpen1m: number | null;
+  priceOpen15m: number | null;
+  priceOpen30m: number | null;
+  priceOpen1h: number | null;
+  moveOpen1m: number | null;
+  moveOpen15m: number | null;
+  moveOpen30m: number | null;
+  moveOpen1h: number | null;
   source: string;
 }> {
   if (!symbol || symbol.toUpperCase() === "MARKET") {
@@ -648,9 +737,22 @@ async function fetchEventPricePoints(
       price2h: null,
       price1d: null,
       price1w: null,
+      isPreMarket: false,
+      marketOpenTime: null,
+      priceOpen1m: null,
+      priceOpen15m: null,
+      priceOpen30m: null,
+      priceOpen1h: null,
+      moveOpen1m: null,
+      moveOpen15m: null,
+      moveOpen30m: null,
+      moveOpen1h: null,
       source: "none",
     };
   }
+
+  const isSwedish = isSwedishStock(symbol);
+  const { isPreMarket, marketOpenTime, marketOpenSec } = getMarketOpenInfo(eventTime, isSwedish);
 
   const nowSec = Math.floor(Date.now() / 1000);
   const eventSec = Math.floor(eventTime.getTime() / 1000);
@@ -663,9 +765,19 @@ async function fetchEventPricePoints(
   const time1dSec = eventSec + 86400;
   const time1wSec = eventSec + 7 * 86400;
 
+  const openTime1mSec = marketOpenSec + 60;
+  const openTime15mSec = marketOpenSec + 900;
+  const openTime30mSec = marketOpenSec + 1800;
+  const openTime1hSec = marketOpenSec + 3600;
+
   const daysDiff = Math.ceil((nowSec - eventSec) / (24 * 60 * 60));
   const isRecent = daysDiff <= 45;
   const isToday = daysDiff <= 0;
+
+  let priceOpen1m: number | null = null;
+  let priceOpen15m: number | null = null;
+  let priceOpen30m: number | null = null;
+  let priceOpen1h: number | null = null;
 
   // 1. Try to fetch chart data (5m for recent <= 45 days, 1d for older news up to 5 years)
   let chartPoints: {
@@ -694,6 +806,14 @@ async function fetchEventPricePoints(
         const at1d = nowSec >= time1dSec ? findClosestPriceInChart(chart, time1dSec) : null;
         const at1w = nowSec >= time1wSec ? findClosestPriceInChart(chart, time1wSec) : null;
 
+        // If pre-market, sample prices at market open
+        if (isPreMarket) {
+          if (nowSec >= openTime1mSec) priceOpen1m = findClosestPriceInChart(chart, openTime1mSec);
+          if (nowSec >= openTime15mSec) priceOpen15m = findClosestPriceInChart(chart, openTime15mSec);
+          if (nowSec >= openTime30mSec) priceOpen30m = findClosestPriceInChart(chart, openTime30mSec);
+          if (nowSec >= openTime1hSec) priceOpen1h = findClosestPriceInChart(chart, openTime1hSec);
+        }
+
         if (atEvent !== null) {
           chartPoints = {
             priceAtEvent: atEvent,
@@ -716,6 +836,16 @@ async function fetchEventPricePoints(
         const atEvent = findClosestPriceInChart(dailyChart, eventSec);
         const at1d = nowSec >= time1dSec ? findClosestPriceInChart(dailyChart, time1dSec) : null;
         const at1w = nowSec >= time1wSec ? findClosestPriceInChart(dailyChart, time1wSec) : null;
+
+        if (isPreMarket && nowSec >= marketOpenSec) {
+          const atOpen = findClosestPriceInChart(dailyChart, marketOpenSec);
+          if (atOpen !== null) {
+            priceOpen1m = atOpen;
+            priceOpen15m = atOpen;
+            priceOpen30m = atOpen;
+            priceOpen1h = atOpen;
+          }
+        }
 
         if (atEvent !== null) {
           chartPoints = {
@@ -756,33 +886,44 @@ async function fetchEventPricePoints(
     }
   }
 
-  // 3. Combine results
-  if (chartPoints) {
-    return {
-      priceAtEvent: (isToday && livePrice !== null) ? livePrice : chartPoints.priceAtEvent,
-      price10m: chartPoints.price10m,
-      price15m: chartPoints.price15m,
-      price30m: chartPoints.price30m,
-      price1h: chartPoints.price1h,
-      price2h: chartPoints.price2h,
-      price1d: chartPoints.price1d,
-      price1w: chartPoints.price1w,
-      source: chartPoints.source,
-    };
+  const finalPriceAtEvent = (isToday && livePrice !== null) ? livePrice : (chartPoints?.priceAtEvent ?? livePrice);
+  const finalSource = chartPoints ? chartPoints.source : liveSource;
+
+  // Calculate percentage moves against event price for open horizons
+  let moveOpen1m: number | null = null;
+  let moveOpen15m: number | null = null;
+  let moveOpen30m: number | null = null;
+  let moveOpen1h: number | null = null;
+
+  if (finalPriceAtEvent && finalPriceAtEvent > 0) {
+    if (priceOpen1m !== null) moveOpen1m = ((priceOpen1m - finalPriceAtEvent) / finalPriceAtEvent) * 100;
+    if (priceOpen15m !== null) moveOpen15m = ((priceOpen15m - finalPriceAtEvent) / finalPriceAtEvent) * 100;
+    if (priceOpen30m !== null) moveOpen30m = ((priceOpen30m - finalPriceAtEvent) / finalPriceAtEvent) * 100;
+    if (priceOpen1h !== null) moveOpen1h = ((priceOpen1h - finalPriceAtEvent) / finalPriceAtEvent) * 100;
   }
 
-  // Fallback for today's live price
-  if (livePrice !== null) {
+  // 3. Combine results
+  if (chartPoints || livePrice !== null) {
     return {
-      priceAtEvent: livePrice,
-      price10m: null,
-      price15m: null,
-      price30m: null,
-      price1h: null,
-      price2h: null,
-      price1d: null,
-      price1w: null,
-      source: liveSource,
+      priceAtEvent: finalPriceAtEvent,
+      price10m: chartPoints?.price10m ?? null,
+      price15m: chartPoints?.price15m ?? null,
+      price30m: chartPoints?.price30m ?? null,
+      price1h: chartPoints?.price1h ?? null,
+      price2h: chartPoints?.price2h ?? null,
+      price1d: chartPoints?.price1d ?? null,
+      price1w: chartPoints?.price1w ?? null,
+      isPreMarket,
+      marketOpenTime: isPreMarket ? marketOpenTime.toISOString() : null,
+      priceOpen1m,
+      priceOpen15m,
+      priceOpen30m,
+      priceOpen1h,
+      moveOpen1m,
+      moveOpen15m,
+      moveOpen30m,
+      moveOpen1h,
+      source: finalSource,
     };
   }
 
@@ -795,6 +936,16 @@ async function fetchEventPricePoints(
     price2h: null,
     price1d: null,
     price1w: null,
+    isPreMarket,
+    marketOpenTime: isPreMarket ? marketOpenTime.toISOString() : null,
+    priceOpen1m: null,
+    priceOpen15m: null,
+    priceOpen30m: null,
+    priceOpen1h: null,
+    moveOpen1m: null,
+    moveOpen15m: null,
+    moveOpen30m: null,
+    moveOpen1h: null,
     source: "none",
   };
 }
@@ -1163,7 +1314,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // If eventTimestamp provided, fetch all horizons (atEvent, 10m, 15m, 30m, 1h, 2h, 1d, 1w) in one fast call
+  // If eventTimestamp provided, fetch all horizons (atEvent, 10m, 15m, 30m, 1h, 2h, 1d, 1w + Pre-Market Open) in one fast call
   if (eventTimestamp) {
     const targetTime = new Date(eventTimestamp);
     const result = await fetchEventPricePoints(symbol, targetTime, source);
@@ -1178,6 +1329,16 @@ export async function GET(request: NextRequest) {
       price2h: result.price2h,
       price1d: result.price1d,
       price1w: result.price1w,
+      isPreMarket: result.isPreMarket,
+      marketOpenTime: result.marketOpenTime,
+      priceOpen1m: result.priceOpen1m,
+      priceOpen15m: result.priceOpen15m,
+      priceOpen30m: result.priceOpen30m,
+      priceOpen1h: result.priceOpen1h,
+      moveOpen1m: result.moveOpen1m,
+      moveOpen15m: result.moveOpen15m,
+      moveOpen30m: result.moveOpen30m,
+      moveOpen1h: result.moveOpen1h,
       source: result.source,
     });
   }
