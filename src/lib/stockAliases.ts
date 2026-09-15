@@ -825,7 +825,6 @@ export function detectStockFromArticle(article: {
  * Check if a symbol or name belongs to a Swedish listed company
  */
 export function isSwedishStockSymbol(symbol: string): boolean {
-
   if (!symbol) return false;
   const upper = symbol.toUpperCase().trim();
   if (upper.endsWith(".ST") || upper.endsWith(".STX") || upper.includes(" ")) return true;
@@ -837,5 +836,35 @@ export function isSwedishStockSymbol(symbol: string): boolean {
   }
   return false;
 }
+
+/**
+ * Get human-readable full name for a stock symbol
+ */
+export function getStockFullName(symbol: string): string {
+  if (!symbol) return "";
+  const upper = symbol.toUpperCase().trim();
+  const clean = upper.replace(/\.ST$/i, "");
+  const match = STOCK_DICTIONARY.find(
+    (s) =>
+      s.symbol.toUpperCase() === upper ||
+      s.symbol.toUpperCase() === clean ||
+      s.name.toUpperCase() === upper ||
+      s.aliases.some((a) => a.toUpperCase() === upper || a.toUpperCase() === clean)
+  );
+  return match ? match.name : symbol;
+}
+
+/**
+ * Format stock symbol and name for dropdowns and displays, e.g. "Volvo (VOLV B)"
+ */
+export function getStockDisplayName(symbol: string): string {
+  if (!symbol) return "";
+  const fullName = getStockFullName(symbol);
+  if (fullName && fullName.toUpperCase() !== symbol.toUpperCase()) {
+    return `${fullName} (${symbol})`;
+  }
+  return symbol;
+}
+
 
 

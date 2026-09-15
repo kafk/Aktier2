@@ -36,7 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { NewsArticle } from "@/types/scraper";
-import { isSwedishStockSymbol } from "@/lib/stockAliases";
+import { isSwedishStockSymbol, getStockDisplayName, getStockFullName } from "@/lib/stockAliases";
 
 export default function ArchivePage() {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
@@ -112,7 +112,11 @@ export default function ArchivePage() {
     articles.forEach((a) => {
       if (a.matchedStock) set.add(a.matchedStock);
     });
-    return Array.from(set).sort();
+    return Array.from(set).sort((a, b) => {
+      const nameA = getStockDisplayName(a).toLowerCase();
+      const nameB = getStockDisplayName(b).toLowerCase();
+      return nameA.localeCompare(nameB, "sv");
+    });
   }, [articles]);
 
   const eventTypeOptions = useMemo(() => {
@@ -139,8 +143,9 @@ export default function ArchivePage() {
           const matchTitle = a.title?.toLowerCase().includes(q);
           const matchSummary = a.summary?.toLowerCase().includes(q);
           const matchStock = a.matchedStock?.toLowerCase().includes(q);
+          const matchFullName = getStockFullName(a.matchedStock)?.toLowerCase().includes(q);
           const matchKw = a.matchedKeywords?.some((k) => k.toLowerCase().includes(q));
-          if (!matchTitle && !matchSummary && !matchStock && !matchKw) return false;
+          if (!matchTitle && !matchSummary && !matchStock && !matchFullName && !matchKw) return false;
         }
         return true;
       })
@@ -490,11 +495,11 @@ export default function ArchivePage() {
                   <SelectTrigger>
                     <SelectValue placeholder="Alla Aktier" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[320px] overflow-y-auto">
                     <SelectItem value="all">Alla Aktier ({stockOptions.length})</SelectItem>
                     {stockOptions.map((s) => (
                       <SelectItem key={s} value={s}>
-                        {s}
+                        {getStockDisplayName(s)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -715,10 +720,15 @@ export default function ArchivePage() {
                             </td>
 
                             {/* Stock */}
-                            <td className="py-3 px-4 font-mono font-bold whitespace-nowrap">
-                              <Badge variant="default" className="font-mono text-xs">
-                                {article.matchedStock}
-                              </Badge>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-xs text-foreground">
+                                  {getStockFullName(article.matchedStock)}
+                                </span>
+                                <Badge variant="secondary" className="font-mono text-[10px] px-1.5 py-0 h-4 bg-muted/60 text-muted-foreground font-normal">
+                                  {article.matchedStock}
+                                </Badge>
+                              </div>
                             </td>
 
                             {/* Title & Source */}
