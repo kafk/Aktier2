@@ -541,9 +541,10 @@ export default function ScraperPage() {
     const setNotificationCount = (n: number) => { notificationCount = n; };
 
     // Determine active stages
-    const usePlacera = newsSource === "placera" || newsSource === "placera_press" || newsSource === "nordic" || newsSource === "all" || newsSource === "both";
-    const useMfn = newsSource === "mfn" || newsSource === "nordic" || newsSource === "all";
+    const usePlacera = newsSource === "placera" || newsSource === "placera_press" || newsSource === "nordic" || newsSource === "nordic_reports" || newsSource === "all" || newsSource === "both";
+    const useMfn = newsSource === "mfn" || newsSource === "mfn_reports" || newsSource === "nordic" || newsSource === "nordic_reports" || newsSource === "all";
     const useYahoo = newsSource === "yahoo" || newsSource === "all" || newsSource === "both";
+    const isReportsOnly = newsSource === "mfn_reports" || newsSource === "nordic_reports";
 
     const totalActiveStages = (usePlacera ? 1 : 0) + (useMfn ? 1 : 0) + (useYahoo ? 1 : 0);
     const stageWeight = 100 / Math.max(1, totalActiveStages);
@@ -636,8 +637,8 @@ export default function ScraperPage() {
       try {
         setScraperState((prev) => ({ ...prev, progress: completedStages * stageWeight }));
 
-        const mfnUrl = `/api/mfn-news?days=${daysToScrape}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
-        console.log(`Fetching MFN news (${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
+        const mfnUrl = `/api/mfn-news?days=${daysToScrape}${isReportsOnly ? "&filter=reports" : ""}${stockSymbols ? `&stocks=${encodeURIComponent(stockSymbols)}` : ""}`;
+        console.log(`Fetching MFN news (${isReportsOnly ? "Reports only, " : ""}${daysToScrape} days, stocks: ${stockSymbols || "all"})...`);
         const response = await fetch(mfnUrl);
         const data = await response.json();
 
@@ -834,7 +835,9 @@ export default function ScraperPage() {
         subtitle={`Monitor stocks for keyword-matching news from ${
           newsSource === "placera" ? "Placera.se (All)" :
           newsSource === "placera_press" ? "Placera.se (Pressmeddelanden)" :
+          newsSource === "mfn_reports" ? "MFN.se (Kvartals- & Delårsrapporter)" :
           newsSource === "mfn" ? "MFN.se (Nordic Press)" :
+          newsSource === "nordic_reports" ? "Nordiska Rapporter (MFN & Placera)" :
           newsSource === "nordic" ? "Placera & MFN.se" :
           newsSource === "yahoo" ? "Yahoo Finance" :
           "Placera, MFN & Yahoo Finance"
