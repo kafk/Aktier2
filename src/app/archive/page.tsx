@@ -38,6 +38,39 @@ import {
 import { NewsArticle } from "@/types/scraper";
 import { isSwedishStockSymbol, getStockDisplayName, getStockFullName } from "@/lib/stockAliases";
 
+type SortField =
+  | "date"
+  | "score"
+  | "stock"
+  | "title"
+  | "type"
+  | "priceAtEvent"
+  | "move10m"
+  | "move15m"
+  | "move30m"
+  | "move1h"
+  | "move2h"
+  | "move1d"
+  | "move1w";
+
+function compareNullableNumber(
+  valA: number | null | undefined,
+  valB: number | null | undefined,
+  dir: "asc" | "desc"
+): number {
+  const hasA = valA !== null && valA !== undefined && !isNaN(valA);
+  const hasB = valB !== null && valB !== undefined && !isNaN(valB);
+
+  // Put rows without data at the bottom regardless of sort direction
+  if (!hasA && !hasB) return 0;
+  if (!hasA) return 1;
+  if (!hasB) return -1;
+
+  if (valA! < valB!) return dir === "asc" ? -1 : 1;
+  if (valA! > valB!) return dir === "asc" ? 1 : -1;
+  return 0;
+}
+
 export default function ArchivePage() {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,7 +78,7 @@ export default function ArchivePage() {
   const [selectedStock, setSelectedStock] = useState<string>("all");
   const [selectedSentiment, setSelectedSentiment] = useState<string>("all");
   const [selectedEventType, setSelectedEventType] = useState<string>("all");
-  const [sortField, setSortField] = useState<"date" | "score" | "move1d" | "stock">("date");
+  const [sortField, setSortField] = useState<SortField>("date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -150,25 +183,72 @@ export default function ArchivePage() {
         return true;
       })
       .sort((a, b) => {
-        let valA: number | string = 0;
-        let valB: number | string = 0;
-
         if (sortField === "date") {
-          valA = new Date(a.publishedAt).getTime() || 0;
-          valB = new Date(b.publishedAt).getTime() || 0;
-        } else if (sortField === "score") {
-          valA = a.impactScore || 0;
-          valB = b.impactScore || 0;
-        } else if (sortField === "move1d") {
-          valA = Math.abs(a.move1d || 0);
-          valB = Math.abs(b.move1d || 0);
-        } else if (sortField === "stock") {
-          valA = a.matchedStock || "";
-          valB = b.matchedStock || "";
+          const tA = new Date(a.publishedAt).getTime() || 0;
+          const tB = new Date(b.publishedAt).getTime() || 0;
+          return sortDirection === "asc" ? tA - tB : tB - tA;
         }
 
-        if (valA < valB) return sortDirection === "asc" ? -1 : 1;
-        if (valA > valB) return sortDirection === "asc" ? 1 : -1;
+        if (sortField === "score") {
+          return compareNullableNumber(a.impactScore, b.impactScore, sortDirection);
+        }
+
+        if (sortField === "priceAtEvent") {
+          return compareNullableNumber(a.priceAtEvent, b.priceAtEvent, sortDirection);
+        }
+
+        if (sortField === "move10m") {
+          return compareNullableNumber(a.move10m, b.move10m, sortDirection);
+        }
+
+        if (sortField === "move15m") {
+          return compareNullableNumber(a.move15m, b.move15m, sortDirection);
+        }
+
+        if (sortField === "move30m") {
+          return compareNullableNumber(a.move30m, b.move30m, sortDirection);
+        }
+
+        if (sortField === "move1h") {
+          return compareNullableNumber(a.move1h, b.move1h, sortDirection);
+        }
+
+        if (sortField === "move2h") {
+          return compareNullableNumber(a.move2h, b.move2h, sortDirection);
+        }
+
+        if (sortField === "move1d") {
+          return compareNullableNumber(a.move1d, b.move1d, sortDirection);
+        }
+
+        if (sortField === "move1w") {
+          return compareNullableNumber(a.move1w, b.move1w, sortDirection);
+        }
+
+        if (sortField === "stock") {
+          const strA = getStockFullName(a.matchedStock) || a.matchedStock || "";
+          const strB = getStockFullName(b.matchedStock) || b.matchedStock || "";
+          return sortDirection === "asc"
+            ? strA.localeCompare(strB, "sv")
+            : strB.localeCompare(strA, "sv");
+        }
+
+        if (sortField === "title") {
+          const strA = a.title || "";
+          const strB = b.title || "";
+          return sortDirection === "asc"
+            ? strA.localeCompare(strB, "sv")
+            : strB.localeCompare(strA, "sv");
+        }
+
+        if (sortField === "type") {
+          const strA = a.eventType || "";
+          const strB = b.eventType || "";
+          return sortDirection === "asc"
+            ? strA.localeCompare(strB, "sv")
+            : strB.localeCompare(strA, "sv");
+        }
+
         return 0;
       });
   }, [articles, selectedStock, selectedSentiment, selectedEventType, searchQuery, sortField, sortDirection]);
@@ -374,13 +454,60 @@ export default function ArchivePage() {
     }
   };
 
-  const toggleSort = (field: "date" | "score" | "move1d" | "stock") => {
+  const toggleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
     } else {
       setSortField(field);
-      setSortDirection("desc");
+      if (field === "stock" || field === "title" || field === "type") {
+        setSortDirection("asc");
+      } else {
+        setSortDirection("desc");
+      }
     }
+  };
+
+  const renderSortHeader = (
+    field: SortField,
+    label: string,
+    align: "left" | "center" | "right" = "center",
+    extraClass: string = ""
+  ) => {
+    const isActive = sortField === field;
+    return (
+      <th
+        className={`py-3 px-2 text-${align} cursor-pointer hover:text-foreground hover:bg-muted/70 transition-colors select-none ${
+          isActive ? "text-primary font-bold bg-primary/10" : ""
+        } ${extraClass}`}
+        onClick={() => toggleSort(field)}
+        title={`Sortera på ${label} (${
+          isActive && sortDirection === "asc"
+            ? "Klicka för fallande (högst/nyast först)"
+            : "Klicka för stigande (lägst/äldst först)"
+        })`}
+      >
+        <div
+          className={`flex items-center gap-1 ${
+            align === "center"
+              ? "justify-center"
+              : align === "right"
+              ? "justify-end"
+              : "justify-start"
+          }`}
+        >
+          <span>{label}</span>
+          {isActive ? (
+            sortDirection === "asc" ? (
+              <ChevronUp className="h-3.5 w-3.5 text-primary shrink-0" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5 text-primary shrink-0" />
+            )
+          ) : (
+            <ArrowUpDown className="h-2.5 w-2.5 opacity-40 shrink-0" />
+          )}
+        </div>
+      </th>
+    );
   };
 
   const renderMoveBadge = (move: number | null | undefined) => {
@@ -656,35 +783,19 @@ export default function ArchivePage() {
                           title={isAllFilteredSelected ? "Avmarkera alla synliga" : "Markera alla synliga"}
                         />
                       </th>
-                      <th className="py-3 px-4 cursor-pointer" onClick={() => toggleSort("stock")}>
-                        <div className="flex items-center gap-1">
-                          Aktie <ArrowUpDown className="h-3 w-3" />
-                        </div>
-                      </th>
-                      <th className="py-3 px-4 min-w-[320px]">Rubrik & Källa</th>
-                      <th className="py-3 px-3">Typ</th>
-                      <th className="py-3 px-3 cursor-pointer" onClick={() => toggleSort("date")}>
-                        <div className="flex items-center gap-1">
-                          Datum <ArrowUpDown className="h-3 w-3" />
-                        </div>
-                      </th>
-                      <th className="py-3 px-3 text-right">Eventkurs</th>
-                      <th className="py-3 px-2 text-center">10m</th>
-                      <th className="py-3 px-2 text-center">15m</th>
-                      <th className="py-3 px-2 text-center">30m</th>
-                      <th className="py-3 px-2 text-center">1h</th>
-                      <th className="py-3 px-2 text-center">2h</th>
-                      <th className="py-3 px-2 text-center cursor-pointer" onClick={() => toggleSort("move1d")}>
-                        <div className="flex items-center justify-center gap-1">
-                          1D <ArrowUpDown className="h-3 w-3" />
-                        </div>
-                      </th>
-                      <th className="py-3 px-2 text-center">1W</th>
-                      <th className="py-3 px-3 text-center cursor-pointer" onClick={() => toggleSort("score")}>
-                        <div className="flex items-center justify-center gap-1">
-                          Score <ArrowUpDown className="h-3 w-3" />
-                        </div>
-                      </th>
+                      {renderSortHeader("stock", "Aktie", "left", "px-4")}
+                      {renderSortHeader("title", "Rubrik & Källa", "left", "px-4 min-w-[300px]")}
+                      {renderSortHeader("type", "Typ", "left", "px-3")}
+                      {renderSortHeader("date", "Datum", "left", "px-3")}
+                      {renderSortHeader("priceAtEvent", "Eventkurs", "right", "px-3")}
+                      {renderSortHeader("move10m", "10m", "center", "px-2")}
+                      {renderSortHeader("move15m", "15m", "center", "px-2")}
+                      {renderSortHeader("move30m", "30m", "center", "px-2")}
+                      {renderSortHeader("move1h", "1h", "center", "px-2")}
+                      {renderSortHeader("move2h", "2h", "center", "px-2")}
+                      {renderSortHeader("move1d", "1D", "center", "px-2")}
+                      {renderSortHeader("move1w", "1W", "center", "px-2")}
+                      {renderSortHeader("score", "Score", "center", "px-3")}
                       <th className="py-3 px-3 text-right">Åtgärd</th>
                     </tr>
                   </thead>
