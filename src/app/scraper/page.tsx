@@ -20,7 +20,7 @@ import {
   defaultScoringConfig,
 } from "@/types/keywords";
 import Link from "next/link";
-import { Settings, BarChart3 } from "lucide-react";
+import { Settings, BarChart3, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
 import { calculatePriceMovement, DEFAULT_BASELINE } from "@/types/priceTracking";
@@ -509,6 +509,17 @@ export default function ScraperPage() {
       console.error("Failed to save article to localStorage:", e);
     }
 
+    // Save to persistent server database
+    try {
+      fetch("/api/articles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newsArticle),
+      }).catch((err) => console.warn("Background server db save failed:", err));
+    } catch (e) {
+      console.warn("Failed to POST article to server db:", e);
+    }
+
 
     // Check notification limit
     if (newCount >= scraperRef.current.currentLimit) {
@@ -846,6 +857,12 @@ export default function ScraperPage() {
         }`}
         backHref="/"
       >
+        <Link href="/archive">
+          <Button variant="outline" className="border-indigo-600 text-indigo-600 hover:bg-indigo-50">
+            <Database className="h-4 w-4 mr-2" />
+            Arkiv & Databas
+          </Button>
+        </Link>
         <Link href="/backtesting">
           <Button variant="outline">
             <BarChart3 className="h-4 w-4 mr-2" />
