@@ -7,7 +7,23 @@ import {
   clearAllStoredArticles,
   exportArticlesToCsv,
 } from "@/lib/serverDb";
+import { isWriteProtectionConfigured, verifyWriteAccess } from "@/lib/apiAuth";
 import { NewsArticle } from "@/types/scraper";
+
+const MAX_BATCH_SIZE = 2000;
+
+function isValidNewsArticle(item: unknown): item is NewsArticle {
+  if (!item || typeof item !== "object") return false;
+  const candidate = item as Record<string, unknown>;
+  return (
+    typeof candidate.id === "string" &&
+    candidate.id.trim().length > 0 &&
+    typeof candidate.title === "string" &&
+    candidate.title.trim().length > 0 &&
+    typeof candidate.matchedStock === "string" &&
+    typeof candidate.publishedAt === "string"
+  );
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -53,6 +69,7 @@ export async function GET(request: NextRequest) {
       total,
       limit: limit || total,
       offset,
+      authRequired: isWriteProtectionConfigured(),
     });
   } catch (error) {
     console.error("Error in GET /api/articles:", error);
@@ -64,20 +81,27 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = verifyWriteAccess(request);
+  if (!auth.authorized) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const body = await request.json();
-    let newArticles: NewsArticle[] = [];
+    let rawArticles: unknown[] = [];
 
     if (Array.isArray(body)) {
-      newArticles = body;
-    } else if (body && body.articles && Array.isArray(body.articles)) {
-      newArticles = body.articles;
-    } else if (body && body.id && body.title) {
-      newArticles = [body];
+      rawArticles = body;
+    } else if (body && Array.isArray(body.articles)) {
+      rawArticles = body.articles;
+    } else if (body && typeof body === "object" && "id" in body && "title" in body) {
+      rawArticles = [body];
     }
 
+    const newArticles = rawArticles.filter(isValidNewsArticle).slice(0, MAX_BATCH_SIZE);
+
     if (newArticles.length === 0) {
-      return NextResponse.json({ message: "No articles to save", savedCount: 0, totalCount: 0 });
+      return NextResponse.json({ message: "No valid articles to save", savedCount: 0, totalCount: 0 });
     }
 
     const result = saveOrUpdateArticles(newArticles);
@@ -96,6 +120,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const auth = verifyWriteAccess(request);
+  if (!auth.authorized) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const singleId = searchParams.get("id");
@@ -107,9 +136,9 @@ export async function DELETE(request: NextRequest) {
     try {
       const body = await request.json();
       if (Array.isArray(body)) {
-        bodyIds = body;
+        bodyIds = body.filter((id): id is string => typeof id === "string");
       } else if (body && Array.isArray(body.ids)) {
-        bodyIds = body.ids;
+        bodyIds = body.ids.filter((id: unknown): id is string => typeof id === "string");
       }
     } catch {
       // Body might be empty, that's fine
@@ -130,7 +159,11 @@ export async function DELETE(request: NextRequest) {
 
     if (allTargetIds.length > 1) {
       const result = deleteMultipleStoredArticles(allTargetIds);
-      return NextResponse.json({ success: true, deletedCount: result.deletedCount, remainingCount: result.remainingCount });
+      return NextResponse.json({
+        success: true,
+        deletedCount: result.deletedCount,
+        remainingCount: result.remainingCount,
+      });
     }
 
     if (clearAll) {

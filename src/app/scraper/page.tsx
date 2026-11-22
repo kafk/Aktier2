@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Header } from "@/components/Header";
 import { calculatePriceMovement, DEFAULT_BASELINE } from "@/types/priceTracking";
 import { matchStockInArticle, detectStockFromArticle } from "@/lib/stockAliases";
+import { getWriteHeaders } from "@/lib/clientAuth";
 
 interface YahooNewsItem {
   title: string;
@@ -619,7 +620,7 @@ export default function ScraperPage() {
     try {
       fetch("/api/articles", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getWriteHeaders(),
         body: JSON.stringify(newsArticle),
       }).catch((err) => console.warn("Background server db save failed:", err));
     } catch (e) {

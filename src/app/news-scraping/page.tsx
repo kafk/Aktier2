@@ -38,12 +38,45 @@ interface TelegramConfig {
 type NewsSource = "placera" | "yahoo" | "both";
 type ScrapeInterval = "1" | "5" | "10" | "15" | "30";
 
+const REVOKED_TOKEN_PREFIXES = ["8388583066:AAGo9", "7783225076:AAG6D", "7911671019:AAET8"];
+function isRevokedToken(token?: string): boolean {
+  if (!token) return false;
+  const trimmed = token.trim();
+  return REVOKED_TOKEN_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
+
 export default function NewsScrapingPage() {
-  // Telegram configuration
+  // Telegram configuration (token should be stored in server env var TELEGRAM_BOT_TOKEN)
   const [telegramConfig, setTelegramConfig] = useLocalStorage<TelegramConfig>("telegram-config", {
-    botToken: "REDACTED_USE_TELEGRAM_BOT_TOKEN_ENV",
-    chatId: "2018516367",
+    botToken: "",
+    chatId: "",
   });
+  const [serverTokenConfigured, setServerTokenConfigured] = useState(false);
+
+  // Purge any previously exposed default bot token from client localStorage and check server env status
+  useEffect(() => {
+    if (isRevokedToken(telegramConfig.botToken)) {
+      setTelegramConfig((prev) => ({ ...prev, botToken: "" }));
+    }
+  }, [telegramConfig.botToken, setTelegramConfig]);
+
+  useEffect(() => {
+    fetch("/api/telegram-verify")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) {
+          setServerTokenConfigured(Boolean(data.serverTokenConfigured));
+          if (data.defaultChatId) {
+            setTelegramConfig((prev) =>
+              prev.chatId ? prev : { ...prev, chatId: String(data.defaultChatId) }
+            );
+          }
+        }
+      })
+      .catch(() => {});
+  }, [setTelegramConfig]);
+
+  const hasBotToken = serverTokenConfigured || Boolean(telegramConfig.botToken.trim());
 
   // Scraping settings
   const [newsSource, setNewsSource] = useState<NewsSource>("placera");
@@ -110,7 +143,7 @@ export default function NewsScrapingPage() {
 
   // Send Telegram notification
   const sendTelegramNotification = async (article: ScrapedArticle) => {
-    if (!telegramConfig.botToken || !telegramConfig.chatId) {
+    if (!hasBotToken || !telegramConfig.chatId) {
       console.warn("Telegram not configured");
       return false;
     }
@@ -128,7 +161,7 @@ export default function NewsScrapingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          botToken: telegramConfig.botToken,
+          ...(serverTokenConfigured ? {} : { botToken: telegramConfig.botToken }),
           chatId: telegramConfig.chatId,
           message,
         }),
@@ -378,8 +411,8 @@ export default function NewsScrapingPage() {
 
   // Verify Telegram config - finds correct chat ID
   const verifyTelegram = async () => {
-    if (!telegramConfig.botToken) {
-      setErrorMessage("Please enter Bot Token first");
+    if (!hasBotToken) {
+      setErrorMessage("Configure TELEGRAM_BOT_TOKEN on server or enter Bot Token first");
       return;
     }
 
@@ -390,9 +423,9 @@ export default function NewsScrapingPage() {
       const response = await fetch("/api/telegram-verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          botToken: telegramConfig.botToken,
-        }),
+        body: JSON.stringify(
+          serverTokenConfigured ? {} : { botToken: telegramConfig.botToken }
+        ),
       });
 
       const data = await response.json();
@@ -412,7 +445,7 @@ export default function NewsScrapingPage() {
         setTelegramConfig(prev => ({ ...prev, chatId: firstChatId }));
         setVerifyResult(`Found ${data.chats.length} chat(s):\n${chatInfo}\n\nChat ID auto-filled: ${firstChatId}`);
       } else {
-        setVerifyResult("No chats found. Please:\n1. Open Telegram\n2. Find @Gotainnovation_bot\n3. Send /start\n4. Click Verify again");
+        setVerifyResult("No chats found. Please:\n1. Open Telegram\n2. Find your bot\n3. Send /start\n4. Click Verify again");
       }
     } catch (error) {
       setErrorMessage(`Failed to verify: ${error}`);
@@ -421,8 +454,8 @@ export default function NewsScrapingPage() {
 
   // Test Telegram connection
   const testTelegram = async () => {
-    if (!telegramConfig.botToken || !telegramConfig.chatId) {
-      setErrorMessage("Please enter Bot Token and Chat ID");
+    if (!hasBotToken || !telegramConfig.chatId) {
+      setErrorMessage("Please configure Bot Token (server TELEGRAM_BOT_TOKEN) and Chat ID");
       return;
     }
 
@@ -431,7 +464,7 @@ export default function NewsScrapingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          botToken: telegramConfig.botToken,
+          ...(serverTokenConfigured ? {} : { botToken: telegramConfig.botToken }),
           chatId: telegramConfig.chatId,
           message: "✅ Test notification from News Scraping app!",
         }),
@@ -497,14 +530,21 @@ export default function NewsScrapingPage() {
               <CardContent className="space-y-4">
                 <div>
                   <Label htmlFor="botToken">Bot Token</Label>
-                  <Input
-                    id="botToken"
-                    type="password"
-                    placeholder="Enter your Telegram bot token"
-                    value={telegramConfig.botToken}
-                    onChange={(e) => setTelegramConfig(prev => ({ ...prev, botToken: e.target.value }))}
-                    disabled={isRunning}
-                  />
+                  {serverTokenConfigured ? (
+                    <div className="mt-1 flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                      <CheckCircle className="h-4 w-4 shrink-0" />
+                      <span>Konfigurerad säkert på servern via <code>TELEGRAM_BOT_TOKEN</code></span>
+                    </div>
+                  ) : (
+                    <Input
+                      id="botToken"
+                      type="password"
+                      placeholder="Sätt TELEGRAM_BOT_TOKEN på servern eller ange temporär token"
+                      value={telegramConfig.botToken}
+                      onChange={(e) => setTelegramConfig(prev => ({ ...prev, botToken: e.target.value }))}
+                      disabled={isRunning}
+                    />
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="chatId">Chat ID</Label>
@@ -520,7 +560,7 @@ export default function NewsScrapingPage() {
                   <Button
                     variant="outline"
                     onClick={verifyTelegram}
-                    disabled={isRunning || !telegramConfig.botToken}
+                    disabled={isRunning || !hasBotToken}
                   >
                     <Search className="h-4 w-4 mr-2" />
                     Verify & Find Chat ID
@@ -528,7 +568,7 @@ export default function NewsScrapingPage() {
                   <Button
                     variant="outline"
                     onClick={testTelegram}
-                    disabled={isRunning || !telegramConfig.botToken || !telegramConfig.chatId}
+                    disabled={isRunning || !hasBotToken || !telegramConfig.chatId}
                   >
                     <Bell className="h-4 w-4 mr-2" />
                     Test Notification
@@ -602,7 +642,7 @@ export default function NewsScrapingPage() {
                     <Button
                       onClick={startScraping}
                       className="flex-1 bg-green-600 hover:bg-green-700"
-                      disabled={!telegramConfig.botToken || !telegramConfig.chatId}
+                      disabled={!hasBotToken || !telegramConfig.chatId}
                     >
                       <Play className="h-4 w-4 mr-2" />
                       Start Scraping

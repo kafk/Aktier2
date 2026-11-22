@@ -27,15 +27,49 @@ interface TelegramResponse {
   description?: string;
 }
 
+const REVOKED_TOKEN_PREFIXES = ["8388583066:AAGo9", "7783225076:AAG6D", "7911671019:AAET8"];
+function isRevokedToken(token?: string): boolean {
+  if (!token) return false;
+  const trimmed = token.trim();
+  return REVOKED_TOKEN_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
+
+export async function GET() {
+  const serverToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const serverChatId = process.env.TELEGRAM_CHAT_ID?.trim() || "";
+  return NextResponse.json({
+    serverTokenConfigured: Boolean(serverToken && !isRevokedToken(serverToken)),
+    defaultChatId: serverChatId,
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { botToken } = body;
+    let body: { botToken?: string } = {};
+    try {
+      body = await request.json();
+    } catch {
+      // Allow empty body when TELEGRAM_BOT_TOKEN is configured on the server
+    }
+
+    const serverToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+    const clientToken = body.botToken?.trim();
+    const botToken = serverToken || clientToken;
 
     if (!botToken) {
       return NextResponse.json(
-        { error: "Missing botToken" },
+        { error: "Missing botToken (configure TELEGRAM_BOT_TOKEN on server or enter token)" },
         { status: 400 }
+      );
+    }
+
+    if (isRevokedToken(botToken)) {
+      return NextResponse.json(
+        {
+          error:
+            "This Telegram bot token was previously exposed in git history and is blocked. Please revoke it in @BotFather and set a new TELEGRAM_BOT_TOKEN on the server.",
+        },
+        { status: 403 }
       );
     }
 

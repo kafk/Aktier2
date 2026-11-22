@@ -44,6 +44,7 @@ import { NewsArticle } from "@/types/scraper";
 import { isSwedishStockSymbol, getStockDisplayName, getStockFullName } from "@/lib/stockAliases";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { Classification, defaultClassifications } from "@/types/keywords";
+import { getStoredAdminApiKey, setStoredAdminApiKey, getWriteHeaders } from "@/lib/clientAuth";
 
 type SortField =
   | "date"
@@ -91,6 +92,24 @@ export default function ArchivePage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(100);
+  const [authRequired, setAuthRequired] = useState<boolean>(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+
+  useEffect(() => {
+    setHasApiKey(Boolean(getStoredAdminApiKey()));
+  }, []);
+
+  const promptForApiKey = useCallback(() => {
+    const current = getStoredAdminApiKey();
+    const entered = window.prompt(
+      "Ange ADMIN_API_KEY för att låsa upp skrivning och radering i arkivet (lämna tomt för att rensa):",
+      current
+    );
+    if (entered !== null) {
+      setStoredAdminApiKey(entered);
+      setHasApiKey(Boolean(entered.trim()));
+    }
+  }, []);
 
   const [classifications] = useLocalStorage<Classification[]>(
     "classifications",
@@ -107,6 +126,7 @@ export default function ArchivePage() {
       if (res.ok) {
         const data = await res.json();
         serverArticles = data.articles || [];
+        setAuthRequired(Boolean(data.authRequired));
       }
 
       // 2. Read from localStorage to ensure any un-synced items are saved
@@ -138,7 +158,7 @@ export default function ArchivePage() {
       if (merged.length > serverArticles.length) {
         fetch("/api/articles", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getWriteHeaders(),
           body: JSON.stringify(merged),
         }).catch((e) => console.warn("Background sync failed:", e));
       }
@@ -393,11 +413,17 @@ export default function ArchivePage() {
     }
 
     try {
-      await fetch("/api/articles", {
+      const res = await fetch("/api/articles", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: getWriteHeaders(),
         body: JSON.stringify({ ids: idsToDelete }),
       });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || "Kunde inte radera markerade rapporter (kontrollera API-nyckel).");
+        return;
+      }
 
       const deletedSet = new Set(idsToDelete);
       setArticles((prev) => prev.filter((a) => !deletedSet.has(a.id)));
@@ -505,7 +531,15 @@ export default function ArchivePage() {
   const handleDeleteArticle = async (id: string) => {
     if (!confirm("Är du säker på att du vill ta bort denna sparade notis?")) return;
     try {
-      await fetch(`/api/articles?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const res = await fetch(`/api/articles?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: getWriteHeaders(),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || "Kunde inte ta bort notisen (kontrollera API-nyckel).");
+        return;
+      }
       setArticles((prev) => prev.filter((a) => a.id !== id));
       setSelectedIds((prev) => {
         const next = new Set(prev);
@@ -526,7 +560,15 @@ export default function ArchivePage() {
   const handleClearAll = async () => {
     if (!confirm("VARNING: Vill du rensa hela databasen över sparade rapporter? Detta kan inte ångras.")) return;
     try {
-      await fetch("/api/articles", { method: "DELETE" });
+      const res = await fetch("/api/articles?all=true", {
+        method: "DELETE",
+        headers: getWriteHeaders(),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || "Kunde inte rensa arkivet (kontrollera API-nyckel).");
+        return;
+      }
       localStorage.removeItem("scraped-articles");
       setArticles([]);
       setSelectedIds(new Set());
@@ -660,6 +702,9 @@ export default function ArchivePage() {
         subtitle="Permanent databas över alla skrapade kvartalsrapporter, PM och kursreaktioner"
         backHref="/scraper"
       >
+        <Button variant="outline" size="sm" onClick={promptForApiKey}>
+          {hasApiKey ? "🔑 API-nyckel (Aktiv)" : authRequired ? "🔒 Ange API-nyckel" : "🔑 API-nyckel"}
+        </Button>
         <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={articles.length === 0}>
           <Download className="h-4 w-4 mr-2 text-emerald-600" />
           Exportera CSV
